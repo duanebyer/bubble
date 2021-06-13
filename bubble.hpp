@@ -217,6 +217,9 @@ public:
 	Point<DIM, Real> offset_local(CellHandle parent, std::size_t child) const {
 		return _cells[parent].branch.offset(child);
 	}
+	Real volume_local(CellHandle parent, std::size_t child) const {
+		return _cells[parent].branch.volume(child);
+	}
 
 	// Splits a leaf parent cell into new children.
 	void split(
@@ -308,6 +311,18 @@ struct Stats final {
 		return *this;
 	}
 
+	FI est_mean(FI* mean_var_out=nullptr) const {
+		// Unbiased estimate of mean.
+		FI mean = mean_total / count;
+		// Unbiased estimate of variance.
+		FI var = (mom2_total - sq(mean) * count) / (count - 1);
+		// Variance in estimate of mean.
+		if (mean_var_out != nullptr) {
+			*mean_var_out = var / count;
+		}
+		return mean;
+	}
+
 	FI est_prime(FI* prime_var_out=nullptr) const {
 		// Unbiased estimate of the second moment.
 		FI mom2 = mom2_total / count;
@@ -326,12 +341,8 @@ struct Stats final {
 		return prime;
 	}
 	FI est_eff(FI* eff_var_out=nullptr) const {
-		// Unbiased estimate of mean.
-		FI mean = mean_total / count;
-		// Unbiased estimate of variance.
-		FI var = (mom2_total - sq(mean) * count) / (count - 1);
-		// Variance in estimate of mean.
-		FI mean_var = var / count;
+		FI mean_var;
+		FI mean = est_mean(&mean_var);
 		// Prime estimate and variance.
 		FI prime_var;
 		FI prime = est_prime(&prime_var);
@@ -401,9 +412,14 @@ class CellBuilder final {
 		"Function must return floating point type.");
 
 	struct BranchData final {
+		// The reason that we don't store a `Stats` and instead keep all of
+		// these variables separate is because the `prime` and `volatility`
+		// measures are not linear. So, the stats for different leafs can't just
+		// be added to get the stats for a branch.
+		FI mean;
 		FI prime;
 		FI vol;
-		BranchData() : vol(0) { }
+		BranchData() : mean(0), prime(0), vol(0) { }
 	};
 	struct LeafData final {
 		Stats<FI> stats;
@@ -423,6 +439,9 @@ class CellBuilder final {
 	// initialize the tree.
 	FI _target_eff;
 	FI _target_eff_rel_err;
+	// The maximum quality a cell can have without a forced termination of
+	// exploration.
+	FI _max_cell_quality;
 	// Chi-squared needed for division.
 	FI _chi_squared_for_divide;
 	// Number of bins in edge histograms.
@@ -452,13 +471,28 @@ class CellBuilder final {
 		return result;
 	}
 
+	// Fills in means for a cell and all of its descendents.
+	FI fill_means(CellHandle cell) {
+		CellHandle parent = cell;
+		if (_tree.type(parent) == CellType::BRANCH) {
+			_tree.branch_data(parent).mean = 0;
+			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+				CellHandle child = _tree.child(parent, child_idx);
+				R volume = _tree.volume_local(parent, child);
+				_tree.branch_data(parent).mean += volume * fill_means(child);
+			}
+			return _tree.branch_data(parent).mean;
+		} else {
+			return _tree.leaf_data(parent).stats.est_mean();
+		}
+	}
 	// Fills in primes for a cell and all of its descendents.
 	FI fill_primes(CellHandle cell) {
 		CellHandle parent = cell;
 		if (_tree.type(parent) == CellType::BRANCH) {
 			_tree.branch_data(parent).prime = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
-				CellHandle child = _tree.child(parent, child);
+				CellHandle child = _tree.child(parent, child_idx);
 				_tree.branch_data(parent).prime += fill_primes(child);
 			}
 			return _tree.branch_data(parent).prime;
@@ -472,7 +506,7 @@ class CellBuilder final {
 		if (_tree.type(parent) == CellType::BRANCH) {
 			_tree.branch_data(parent).vol = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
-				CellHandle child = _tree.child(parent, child);
+				CellHandle child = _tree.child(parent, child_idx);
 				_tree.branch_data(parent).vol += fill_vols(child, prime_total);
 			}
 			return _tree.branch_data(parent).vol;
@@ -533,9 +567,17 @@ class CellBuilder final {
 			// Statistics measures.
 			Stats<FI> stats;
 			Stats<FI> stats_init;
+			R mean;
+			bool is_root;
 			{
 				std::lock_guard<std::mutex> lock(tree_mutex);
 				stats_init = _tree.leaf_data(cell).stats;
+				if (_tree.type(_tree.root()) == CellType::BRANCH) {
+					mean = _tree.branch_data(_tree.root()).mean;
+				} else {
+					mean = _tree.leaf_data(_tree.root()).stats.est_mean();
+				}
+				is_root = (cell == _tree.root());
 			}
 			// Histograms, one for each axis of the hypercube.
 			std::vector<Stats<FI> > hist_stats[D];
@@ -600,15 +642,32 @@ class CellBuilder final {
 				FI eff = stats_total.est_eff(&eff_var);
 
 				// Termination condition 1. Efficiency meets criteria.
-				// There are two conditions for the efficiency to be good
-				// enough:
-				//  * Efficiency better than target efficiency.
-				//  * Uncertainty in efficiency smaller than target uncertainty.
-				FI eff_err = std::sqrt(eff_var);
-				if (eff > _target_eff && eff_err / eff < _target_eff_rel_err) {
-					std::lock_guard<std::mutex> lock(tree_mutex);
-					_tree.leaf_data(cell).stats += stats;
-					return;
+				// First check the cell division quality ratio. If the ratio is
+				// greater than one, then check that the efficiency has met the
+				// target efficiency and has small enough uncertainty (and if
+				// so, then terminate).
+				FI eff_quality = (1 - _target_eff) / (_target_eff * (1 - eff));
+				// This ratio is calculated in this weird way because if we are
+				// exploring the root cell, then the `mean` variable doesn't
+				// have a good initial value yet.
+				FI prime_quality = is_root ?
+					stats_total.est_mean() / prime : mean / prime;
+				// TODO: Improve cell quality estimator.
+				FI cell_quality = 0.5 * eff_quality * prime_quality;
+				if (!is_root && cell_quality > 1) {
+					FI eff_rel_err = std::sqrt(eff_var) / eff;
+					bool eff_good = eff > _target_eff
+						&& eff_rel_err < _target_eff_rel_err;
+					bool quality_good = cell_quality > _max_cell_quality;
+					// If the cell quality is very high without the efficiency
+					// meeting the target, then this indicates that the
+					// efficiency will likely never meet the target in this
+					// cell, so just terminate without meeting it.
+					if (eff_good || quality_good) {
+						std::lock_guard<std::mutex> lock(tree_mutex);
+						_tree.leaf_data(cell).stats += stats;
+						return;
+					}
 				}
 
 				// Termination condition 2. Cell division.
@@ -623,7 +682,6 @@ class CellBuilder final {
 					std::size_t bin_min = _hist_num_bins / 2;
 					Stats<FI> stats_lower_min;
 					Stats<FI> stats_upper_min;
-					bool enough_samples = true;
 					for (Dim dim = 0; dim < D; ++dim) {
 						// Integrated statistics below and above the proposed
 						// division site.
@@ -698,6 +756,8 @@ class CellBuilder final {
 							typename TreeType::Branch(dim_min, split),
 							BranchData(),
 							leaf_data);
+						// Every time a split occurs, re-calculate the means.
+						fill_means(_tree.root());
 						// Recursively calling will cause the new children to be
 						// explored.
 						explore_cell(
@@ -829,6 +889,7 @@ public:
 			// TODO: Properly initialize these parameters.
 			_target_eff(0.9),
 			_target_eff_rel_err(0.01),
+			_max_cell_quality(10.),
 			_chi_squared_for_divide(10.),
 			_hist_num_bins(100),
 			_hist_num_per_bin(3),
@@ -925,7 +986,7 @@ class CellGenerator final {
 		if (_tree.type(parent) == CellType::BRANCH) {
 			_tree.branch_data(parent).prime = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
-				CellHandle child = _tree.child(parent, child);
+				CellHandle child = _tree.child(parent, child_idx);
 				_tree.branch_data(parent).prime += fill_primes(child);
 			}
 			return _tree.branch_data(parent).prime;
