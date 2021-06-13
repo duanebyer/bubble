@@ -616,13 +616,13 @@ class CellBuilder final {
 				FI prime_min = prime;
 				Dim dim_min = 0;
 				std::size_t bin_min = _hist_num_bins / 2;
-				Stats<FI> stats_lower;
-				Stats<FI> stats_upper;
+				Stats<FI> stats_lower_min;
+				Stats<FI> stats_upper_min;
 				bool enough_samples = true;
 				for (Dim dim = 0; dim < D; ++dim) {
 					// Integrated statistics below and above the division site.
-					stats_lower = Stats<FI>();
-					stats_upper = stats;
+					Stats<FI> stats_lower = Stats<FI>();
+					Stats<FI> stats_upper = stats;
 					// Test division at each bin boundary. Note that the last
 					// bin is left off: such a data point would have
 					// `count_upper == 0`, which is difficult to deal with.
@@ -674,6 +674,8 @@ class CellBuilder final {
 							prime_min = prime_new;
 							dim_min = dim;
 							bin_min = bin;
+							stats_lower_min = stats_lower;
+							stats_upper_min = stats_upper;
 						}
 					}
 				}
