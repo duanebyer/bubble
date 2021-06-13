@@ -337,7 +337,7 @@ struct Stats final {
 		// TODO: Improve the quality of this estimator. Right now, it
 		// may be quite biased in certain circumstances. Also improve
 		// the quality of the variance estimate to go with it.
-		FI eff = prime / mean;
+		FI eff = mean / prime;
 		// Variance in estimate of efficiency.
 		// TODO: Fix this calculation, since the two errors are not
 		// independent. They are positively correlated, so this is an
