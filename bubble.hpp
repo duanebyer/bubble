@@ -692,7 +692,7 @@ class CellBuilder final {
 						};
 						_tree.split(
 							cell,
-							typename TreeType::Branch(dim_min, bin_min),
+							typename TreeType::Branch(dim_min, split),
 							BranchData(),
 							leaf_data);
 						// Recursively calling will cause the new children to be
