@@ -152,9 +152,11 @@ class Tree final {
 					leaf_data.~DL();
 				}
 				if (other._type == CellType::BRANCH) {
+					_type = CellType::BRANCH;
 					new(&branch) B(other.branch);
 					new(&branch_data) DB(other.branch_data);
 				} else {
+					_type = CellType::LEAF;
 					new(&leaf_data) DL(other.leaf_data);
 				}
 			}
