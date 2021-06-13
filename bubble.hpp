@@ -627,6 +627,9 @@ class CellBuilder final {
 					// bin is left off: such a data point would have
 					// `count_upper == 0`, which is difficult to deal with.
 					for (std::size_t bin = 0; bin < _hist_num_bins - 1; ++bin) {
+						// Update the integrated statistics.
+						stats_lower += hist_stats[dim][bin];
+						stats_upper -= hist_stats[dim][bin];
 						// TODO: Have a better reason for the number of
 						// statistics required per bin. Also, put a check
 						// outside that the average number of counts per bin is
@@ -635,9 +638,6 @@ class CellBuilder final {
 							enough_samples = false;
 							goto not_enough_samples;
 						}
-						// Update the integrated statistics.
-						stats_lower += hist_stats[dim][bin];
-						stats_upper -= hist_stats[dim][bin];
 						// Estimate the total prime resulting from splitting the
 						// cell at this bin boundary.
 						// Need to scale by the volume fractions, to account for
