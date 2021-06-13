@@ -427,6 +427,8 @@ class CellBuilder final {
 	FI _chi_squared_for_divide;
 	// Number of bins in edge histograms.
 	std::size_t _hist_num_bins;
+	// Minimum number of samples needed per bin before starting cell division.
+	std::size_t _hist_num_per_bin;
 	// Maximum number of samples to be taken in a single cell in the exploration
 	// phase.
 	std::size_t _max_num_samples_explore;
@@ -614,75 +616,72 @@ class CellBuilder final {
 				// different enough (by chi-squared test) from constant. Then,
 				// the division site that minimizes the new sum of primes is
 				// chosen.
-				FI chi_squared = 0;
-				FI prime_min = prime;
-				Dim dim_min = 0;
-				std::size_t bin_min = _hist_num_bins / 2;
-				Stats<FI> stats_lower_min;
-				Stats<FI> stats_upper_min;
-				bool enough_samples = true;
-				for (Dim dim = 0; dim < D; ++dim) {
-					// Integrated statistics below and above the division site.
-					Stats<FI> stats_lower = Stats<FI>();
-					Stats<FI> stats_upper = stats;
-					// Test division at each bin boundary. Note that the last
-					// bin is left off: such a data point would have
-					// `count_upper == 0`, which is difficult to deal with.
-					for (std::size_t bin = 0; bin < _hist_num_bins - 1; ++bin) {
-						// Update the integrated statistics.
-						stats_lower += hist_stats[dim][bin];
-						stats_upper -= hist_stats[dim][bin];
-						// TODO: Have a better reason for the number of
-						// statistics required per bin. Also, put a check
-						// outside that the average number of counts per bin is
-						// large enough, before starting to loop through bins.
-						if (stats_lower.count <= 3 || stats_upper.count <= 3) {
-							enough_samples = false;
-							goto not_enough_samples;
-						}
-						// Estimate the total prime resulting from splitting the
-						// cell at this bin boundary.
-						// Need to scale by the volume fractions, to account for
-						// volume being included in the statistics measures.
-						R lambda_1 = R(bin + 1) / _hist_num_bins;
-						R lambda_2 = R(_hist_num_bins - bin - 1) / _hist_num_bins;
-						FI prime_var_lower;
-						FI prime_lower = (lambda_1 * stats_lower).est_prime(
-							&prime_var_lower);
-						FI prime_var_upper;
-						FI prime_upper = (lambda_2 * stats_upper).est_prime(
-							&prime_var_upper);
-						FI prime_new = prime_lower + prime_upper;
-						// Because the two prime estimates are independent, the
-						// variances can be summed.
-						FI prime_var_new = prime_var_lower + prime_var_upper;
-						// Chi squared test against the maximum possible value
-						// for sum of primes, which is the current prime of the
-						// cell.
-						// TODO: The `prime_var_new` and `prime_var` are not
-						// independent, and so technically shouldn't be added.
-						// Not sure if there's enough dependence for it to
-						// matter though. That would be good to work out.
-						// TODO: Using chi-squared test here even though prime
-						// is not normally distributed. At best it is a square
-						// root of a normal variable (from central limit
-						// theorem, which doesn't necessary work that well for
-						// all distributions). It's not clear what a better test
-						// would be though, so leave it for now.
-						chi_squared += sq(prime_new - prime)
-							/ (prime_var_new + prime_var);
-						// Update minimum.
-						if (prime_new < prime_min && prime_new < prime) {
-							prime_min = prime_new;
-							dim_min = dim;
-							bin_min = bin;
-							stats_lower_min = stats_lower;
-							stats_upper_min = stats_upper;
+				if (stats.count >= _hist_num_per_bin * _hist_num_bins) {
+					FI chi_squared = 0;
+					FI prime_min = prime;
+					Dim dim_min = 0;
+					std::size_t bin_min = _hist_num_bins / 2;
+					Stats<FI> stats_lower_min;
+					Stats<FI> stats_upper_min;
+					bool enough_samples = true;
+					for (Dim dim = 0; dim < D; ++dim) {
+						// Integrated statistics below and above the proposed
+						// division site.
+						Stats<FI> stats_lower = Stats<FI>();
+						Stats<FI> stats_upper = stats;
+						// Test division at each bin boundary. Note that the
+						// last bin is left off: such a data point would have
+						// `count_upper == 0`, which is difficult to deal with.
+						for (std::size_t bin = 0; bin < _hist_num_bins - 1; ++bin) {
+							// Update the integrated statistics.
+							stats_lower += hist_stats[dim][bin];
+							stats_upper -= hist_stats[dim][bin];
+							// If a bin doesn't have the counts needed to
+							// compute a standard deviation, just drop it.
+							if (stats_lower.count <= 3 || stats_upper.count <= 3) {
+								continue;
+							}
+							// Estimate the total prime resulting from splitting
+							// the cell at this bin boundary. Need to scale by
+							// the volume fractions, to account for volume being
+							// included in the statistics measures.
+							R lambda_1 = R(bin + 1) / _hist_num_bins;
+							R lambda_2 = R(_hist_num_bins - bin - 1) / _hist_num_bins;
+							FI prime_var_lower;
+							FI prime_lower = (lambda_1 * stats_lower).est_prime(
+								&prime_var_lower);
+							FI prime_var_upper;
+							FI prime_upper = (lambda_2 * stats_upper).est_prime(
+								&prime_var_upper);
+							FI prime_new = prime_lower + prime_upper;
+							// Because the two prime estimates are independent,
+							// the variances can be summed.
+							FI prime_var_new = prime_var_lower + prime_var_upper;
+							// Chi squared test against the maximum possible
+							// value for sum of primes, which is the current
+							// prime of the cell.
+							// TODO: The `prime_var_new` and `prime_var` are not
+							// independent, and so technically shouldn't be
+							// added. Not sure if there's enough dependence for
+							// it to matter though.
+							// TODO: Using chi-squared test here even though
+							// prime is not normally distributed. At best it is
+							// a square root of a normal variable (from central
+							// limit theorem, which doesn't necessary work that
+							// well for all distributions). It's not clear what
+							// a better test would be though.
+							chi_squared += sq(prime_new - prime)
+								/ (prime_var_new + prime_var);
+							// Update minimum.
+							if (prime_new < prime_min && prime_new < prime) {
+								prime_min = prime_new;
+								dim_min = dim;
+								bin_min = bin;
+								stats_lower_min = stats_lower;
+								stats_upper_min = stats_upper;
+							}
 						}
 					}
-				}
-				not_enough_samples:
-				if (enough_samples) {
 					// Average the chi-squared over every degree of freedom.
 					chi_squared /= D * _hist_num_bins;
 					if (chi_squared > _chi_squared_for_divide) {
@@ -832,6 +831,7 @@ public:
 			_target_eff_rel_err(0.01),
 			_chi_squared_for_divide(10.),
 			_hist_num_bins(100),
+			_hist_num_per_bin(3),
 			_max_num_samples_explore(1000000),
 			_tune_quality(0.95),
 			_tune_num_stages(4),
