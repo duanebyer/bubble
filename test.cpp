@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
 	std::cout << "Total prime: " << builder.prime() << std::endl;
 	auto generator = bubble::make_generator(builder);
 	std::cout << "Generating." << std::endl;
+	std::vector<Real> weights;
 	for (std::size_t count = 0; count < 100; ++count) {
 		Real weight;
 		bubble::Point<DIM, Real> point;
@@ -33,7 +34,17 @@ int main(int argc, char** argv) {
 			<< point[1] << ", "
 			<< point[2] << "), weight: "
 			<< weight << std::endl;
+		weights.push_back(weight);
 	}
+	Real weight_mean;
+	for (Real weight : weights) {
+		weight_mean += weight / weights.size();
+	}
+	Real weight_var;
+	for (Real weight : weights) {
+		weight_var += (weight - weight_mean) * (weight - weight_mean) / weights.size();
+	}
+	std::cout << "Relative variance: " << weight_var / (weight_mean * weight_mean) << std::endl;
 	return 0;
 }
 

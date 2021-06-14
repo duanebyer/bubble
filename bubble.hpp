@@ -264,20 +264,23 @@ template<typename FI>
 struct Stats final {
 	FI mean_total;
 	FI mom2_total;
+	FI mom3_total;
 	FI mom4_total;
 	std::size_t count;
 
 	Stats() :
 		mean_total(0),
 		mom2_total(0),
+		mom3_total(0),
 		mom4_total(0),
 		count(0) { }
 	Stats(
 		FI mean_total,
-		FI mom2_total, FI mom4_total,
+		FI mom2_total, FI mom3_total, FI mom4_total,
 		std::size_t count) :
 		mean_total(mean_total),
 		mom2_total(mom2_total),
+		mom3_total(mom3_total),
 		mom4_total(mom4_total),
 		count(count) { }
 
@@ -285,6 +288,7 @@ struct Stats final {
 		FI measure_sq = sq(measure);
 		mean_total += measure;
 		mom2_total += measure_sq;
+		mom3_total += measure_sq * sq(measure_sq);
 		mom4_total += sq(measure_sq);
 		count += 1;
 	}
@@ -292,6 +296,7 @@ struct Stats final {
 	Stats<FI>& operator+=(Stats<FI> const& rhs) {
 		mean_total += rhs.mean_total;
 		mom2_total += rhs.mom2_total;
+		mom3_total += rhs.mom3_total;
 		mom4_total += rhs.mom4_total;
 		count += rhs.count;
 		return *this;
@@ -299,6 +304,7 @@ struct Stats final {
 	Stats<FI>& operator-=(Stats<FI> const& rhs) {
 		mean_total -= rhs.mean_total;
 		mom2_total -= rhs.mom2_total;
+		mom3_total -= rhs.mom3_total;
 		mom4_total -= rhs.mom4_total;
 		count -= rhs.count;
 		return *this;
@@ -307,23 +313,72 @@ struct Stats final {
 		FI scale_sq = sq(scale);
 		mean_total *= scale;
 		mom2_total *= scale_sq;
+		mom3_total *= scale * sq(scale_sq);
 		mom4_total *= sq(scale_sq);
 		return *this;
 	}
 
-	FI est_mean(FI* mean_var_out=nullptr) const {
+	FI est_mean(FI* mean_err_out=nullptr) const {
 		// Unbiased estimate of mean.
 		FI mean = mean_total / count;
 		// Unbiased estimate of variance.
 		FI var = (mom2_total - sq(mean) * count) / (count - 1);
-		// Variance in estimate of mean.
-		if (mean_var_out != nullptr) {
-			*mean_var_out = var / count;
+		// Error in estimate of mean.
+		if (mean_err_out != nullptr) {
+			*mean_err_out = std::sqrt(var / count);
 		}
 		return mean;
 	}
-
-	FI est_prime(FI* prime_var_out=nullptr) const {
+	FI est_var(FI* var_err_out=nullptr) const {
+		// Unbiased estimate of mean.
+		FI mean = mean_total / count;
+		FI mean_sq = sq(mean);
+		// Sample second and fourth central moments (biased).
+		FI m2 = mom2_total / count - sq(mean);
+		FI m4 = (
+			mom4_total
+			- 4 * mean * mom3_total
+			+ 6 * mean_sq * mom2_total) / count
+			- 3 * sq(mean_sq);
+		// H-statistic for the fourth central moment.
+		FI coeff_n_1 = FI(2) / (count - 2)
+			+ 0.5 * FI(1) / (count - 1)
+			-0.5 * FI(9) / (count - 3);
+		FI coeff_n_2 = 1
+			+ FI(1) / (count - 1)
+			- FI(6) / (count - 2)
+			+ FI(9) / (count - 3);
+		FI h4 = 3 * coeff_n_1 * sq(m2) + coeff_n_2 * m4;
+		// H-statistic for the second central moment (or, sample variance).
+		FI h2 = m2 * count / (count - 1);
+		if (var_err_out != nullptr) {
+			// TODO: This error calculation is a little more complicated than it
+			// needs to be. It's already quite biased, so the attempts to reduce
+			// bias are likely ineffective.
+			*var_err_out = std::sqrt(
+				h4 / count - (FI(3) / count - FI(2) / (count - 1)) * sq(h2));
+		}
+		return h2;
+	}
+	FI est_rel_var(FI* rel_var_err_out=nullptr) const {
+		// Mean estimate and variance.
+		FI mean_err;
+		FI mean = est_mean(&mean_err);
+		// Variance estimate and variance.
+		FI var_err;
+		FI var = est_var(&var_err);
+		// Relative variance, with a small correction for bias.
+		FI rel_var = var / sq(mean) * (1 - 3 / count * var / sq(mean));
+		if (rel_var_err_out != nullptr) {
+			// TODO: Right now, the variance estimate is very bad! It assumes
+			// that the mean and variance are independent and Gaussian, which is
+			// most likely not true.
+			*rel_var_err_out = rel_var
+				* std::sqrt(4 * sq(mean_err / mean) + sq(var_err / var));
+		}
+		return rel_var;
+	}
+	FI est_prime(FI* prime_err_out=nullptr) const {
 		// Unbiased estimate of the second moment.
 		FI mom2 = mom2_total / count;
 		// Unbiased estimate of variance of square.
@@ -334,35 +389,14 @@ struct Stats final {
 		//     F_c = \sqrt{V_c \int dx f^2(x)}
 		// with a small correction for bias added on.
 		FI prime = std::sqrt(mom2) * (1 + mom2_var / (8 * mom2));
-		// Variance in estimate of prime value.
-		if (prime_var_out != nullptr) {
-			*prime_var_out = mom2_var / (4 * mom2);
+		// Error in estimate of prime value.
+		if (prime_err_out != nullptr) {
+			*prime_err_out = 0.5 * std::sqrt(mom2_var / mom2);
 		}
 		return prime;
 	}
-	FI est_eff(FI* eff_var_out=nullptr) const {
-		FI mean_var;
-		FI mean = est_mean(&mean_var);
-		// Prime estimate and variance.
-		FI prime_var;
-		FI prime = est_prime(&prime_var);
-		// Estimate the efficiency.
-		// TODO: Improve the quality of this estimator. Right now, it
-		// may be quite biased in certain circumstances. Also improve
-		// the quality of the variance estimate to go with it.
-		FI eff = mean / prime;
-		// Variance in estimate of efficiency.
-		// TODO: Fix this calculation, since the two errors are not
-		// independent. They are positively correlated, so this is an
-		// overestimate of the true error (I think).
-		if (eff_var_out != nullptr) {
-			*eff_var_out = sq(eff) * (mean_var / sq(mean) + prime_var / sq(prime));
-		}
-		return eff;
-	}
 	FI est_vol(FI prime_tot) const {
-		FI prime_var;
-		FI prime = est_prime(&prime_var);
+		FI prime = est_prime();
 		FI mom2 = mom2_total / count;
 		FI var2 = (mom4_total - sq(mom2) * count) / (count - 1);
 		FI mom2_var = var2 / count;
@@ -437,8 +471,8 @@ class CellBuilder final {
 
 	// The target efficiency must be reached in all cells to completely
 	// initialize the tree.
-	FI _target_eff;
-	FI _target_eff_rel_err;
+	FI _target_rel_var;
+	FI _target_rel_var_sigma;
 	// The maximum quality a cell can have without a forced termination of
 	// exploration.
 	FI _max_cell_quality;
@@ -638,36 +672,38 @@ class CellBuilder final {
 				// every order of magnitude or so.
 				next_count *= 2;
 
-				// Get efficiency and prime.
+				// Get relative variance and prime.
 				Stats<FI> stats_total = stats + stats_init;
-				FI prime_var;
-				FI prime = stats_total.est_prime(&prime_var);
-				FI eff_var;
-				FI eff = stats_total.est_eff(&eff_var);
+				FI prime_err;
+				FI prime = stats_total.est_prime(&prime_err);
+				FI rel_var_err;
+				FI rel_var = stats_total.est_rel_var(&rel_var_err);
 
 				// Termination condition 1. Efficiency meets criteria.
 				// First check the cell division quality ratio. If the ratio is
-				// greater than one, then check that the efficiency has met the
-				// target efficiency and has small enough uncertainty (and if
-				// so, then terminate).
-				FI eff_quality = (1 - _target_eff) / (_target_eff * (1 - eff));
+				// greater than one, then check that the relative variance has
+				// met the target accounting for uncertainty (and if so, then
+				// terminate).
+
+				// This is an approximation for cell quality that works well for
+				// relative variances much less than one.
+				FI var_quality = _target_rel_var / rel_var;
 				// This ratio is calculated in this weird way because if we are
 				// exploring the root cell, then the `mean` variable doesn't
 				// have a good initial value yet.
 				FI prime_quality = is_root ?
 					stats_total.est_mean() / prime : mean / prime;
 				// TODO: Improve cell quality estimator.
-				FI cell_quality = 0.5 * eff_quality * prime_quality;
-				if (!is_root && cell_quality > 1) {
-					FI eff_rel_err = std::sqrt(eff_var) / eff;
-					bool eff_good = eff > _target_eff
-						&& eff_rel_err < _target_eff_rel_err;
-					bool quality_good = cell_quality > _max_cell_quality;
+				FI cell_quality = 0.5 * var_quality * prime_quality;
+				if (cell_quality > 1) {
+					FI rel_var_max = rel_var + _target_rel_var_sigma * rel_var_err;
+					bool var_good = (rel_var_max <= _target_rel_var);
+					bool quality_good = (cell_quality > _max_cell_quality);
 					// If the cell quality is very high without the efficiency
 					// meeting the target, then this indicates that the
 					// efficiency will likely never meet the target in this
 					// cell, so just terminate without meeting it.
-					if (eff_good || quality_good) {
+					if (var_good || quality_good) {
 						std::lock_guard<std::mutex> lock(tree_mutex);
 						_tree.leaf_data(cell).stats += stats;
 						return;
@@ -722,7 +758,7 @@ class CellBuilder final {
 							// Chi squared test against the maximum possible
 							// value for sum of primes, which is the current
 							// prime of the cell.
-							// TODO: The `prime_var_new` and `prime_var` are not
+							// TODO: The `prime_var_new` and `prime_err` are not
 							// independent, and so technically shouldn't be
 							// added. Not sure if there's enough dependence for
 							// it to matter though.
@@ -733,7 +769,7 @@ class CellBuilder final {
 							// well for all distributions). It's not clear what
 							// a better test would be though.
 							chi_squared += sq(prime_new - prime)
-								/ (prime_var_new + prime_var);
+								/ (sq(prime_var_new) + sq(prime_err));
 							// Update minimum.
 							if (prime_new < prime_min && prime_new < prime) {
 								prime_min = prime_new;
@@ -890,8 +926,8 @@ public:
 			_tree(LeafData()),
 			_rnd_left(),
 			// TODO: Properly initialize these parameters.
-			_target_eff(0.9),
-			_target_eff_rel_err(0.01),
+			_target_rel_var(0.05),
+			_target_rel_var_sigma(2.),
 			_max_cell_quality(100.),
 			_chi_squared_for_divide(10.),
 			_hist_num_bins(100),
