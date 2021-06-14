@@ -24,14 +24,16 @@ int main(int argc, char** argv) {
 	std::cout << "Total prime: " << builder.prime() << std::endl;
 	auto generator = bubble::make_generator(builder);
 	std::cout << "Generating." << std::endl;
-	Real weight;
-	bubble::Point<DIM, Real> point;
-	generator.generate(&weight, &point);
-	std::cout << "Point: "
-		<< point[0] << ", "
-		<< point[1] << ", "
-		<< point[2] << std::endl;
-	std::cout << "Weight: " << weight << std::endl;
+	for (std::size_t count = 0; count < 100; ++count) {
+		Real weight;
+		bubble::Point<DIM, Real> point;
+		generator.generate(&weight, &point);
+		std::cout << "point: ("
+			<< point[0] << ", "
+			<< point[1] << ", "
+			<< point[2] << "), weight: "
+			<< weight << std::endl;
+	}
 	return 0;
 }
 

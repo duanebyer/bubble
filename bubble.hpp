@@ -478,12 +478,16 @@ class CellBuilder final {
 			_tree.branch_data(parent).mean = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				CellHandle child = _tree.child(parent, child_idx);
-				R volume = _tree.volume_local(parent, child);
-				_tree.branch_data(parent).mean += volume * fill_means(child);
+				_tree.branch_data(parent).mean += fill_means(child);
 			}
 			return _tree.branch_data(parent).mean;
 		} else {
-			return _tree.leaf_data(parent).stats.est_mean();
+			Stats<FI> const& stats = _tree.leaf_data(parent).stats;
+			if (stats.count == 0) {
+				return 0;
+			} else {
+				return _tree.leaf_data(parent).stats.est_mean();
+			}
 		}
 	}
 	// Fills in primes for a cell and all of its descendents.
@@ -746,14 +750,13 @@ class CellBuilder final {
 						std::lock_guard<std::mutex> lock(tree_mutex);
 						R lambda_1 = R(bin_min + 1) / _hist_num_bins;
 						R lambda_2 = R(_hist_num_bins - bin_min - 1) / _hist_num_bins;
-						R split = offset[dim_min] + lambda_1 * extent[dim_min];
 						LeafData leaf_data[2] = {
 							{ lambda_1 * stats_lower_min },
 							{ lambda_2 * stats_upper_min },
 						};
 						_tree.split(
 							cell,
-							typename TreeType::Branch(dim_min, split),
+							typename TreeType::Branch(dim_min, lambda_1),
 							BranchData(),
 							leaf_data);
 						// Every time a split occurs, re-calculate the means.
@@ -889,14 +892,14 @@ public:
 			// TODO: Properly initialize these parameters.
 			_target_eff(0.9),
 			_target_eff_rel_err(0.01),
-			_max_cell_quality(10.),
+			_max_cell_quality(100.),
 			_chi_squared_for_divide(10.),
 			_hist_num_bins(100),
 			_hist_num_per_bin(3),
 			_max_num_samples_explore(1000000),
 			_tune_quality(0.95),
 			_tune_num_stages(4),
-			_max_num_samples_tune(1000000) {
+			_max_num_samples_tune(10000000) {
 		std::seed_seq seed_seq { seed };
 		_rnd_left.seed(seed_seq);
 	}
@@ -932,9 +935,9 @@ public:
 			FI prime_total = fill_primes(root);
 			FI vol_total = fill_vols(root, prime_total);
 			// Find the number of samples needed to reach the desired accuracy.
-			FI quality = 1 - (1 - _tune_quality) * stage / _tune_num_stages;
 			std::size_t count =
-				std::size_t(1 / (2 * (1 - quality)) * sq(vol_total));
+				std::size_t(1 / (2 * (1 - _tune_quality)) * sq(vol_total));
+			count = std::size_t(R(stage + 1) / _tune_num_stages * count);
 			if (count > _max_num_samples_tune) {
 				count = _max_num_samples_tune;
 			}
@@ -995,11 +998,11 @@ class CellGenerator final {
 		}
 	}
 
-	void select(
+	void select_cell(
 			CellHandle cell,
-			R select_cell, Point<D, R> select_point,
 			Point<D, R> offset, Point<D, R> extent,
-			FR* weight_out, Point<D, R>* point_out) const {
+			R choose_cell, Point<D, R> choose_point,
+			FI* weight_out, Point<D, R>* point_out) const {
 		CellHandle parent = cell;
 		if (_tree.type(parent) == CellType::BRANCH) {
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
@@ -1007,9 +1010,9 @@ class CellGenerator final {
 				// Each child has a chance of being selected proportional to its
 				// prime value.
 				FI prime_ratio = _tree.leaf_data(child).prime / _tree.branch_data(parent).prime;
-				if (select_cell <= prime_ratio || child_idx == TreeType::NUM_CHILDREN - 1) {
-					// Scale `select_cell` to be between 0 and 1 again.
-					select_cell /= prime_ratio;
+				if (choose_cell <= prime_ratio || child_idx == TreeType::NUM_CHILDREN - 1) {
+					// Scale `choose_cell` to be between 0 and 1 again.
+					choose_cell /= prime_ratio;
 					// Adjust offset and extent for the next level of recursion.
 					Point<D, R> offset_local = _tree.offset_local(parent, child_idx);
 					Point<D, R> extent_local = _tree.extent_local(parent, child_idx);
@@ -1018,37 +1021,26 @@ class CellGenerator final {
 						extent[dim] *= extent_local[dim];
 					}
 					// Select the point from the child cell.
-					select(
+					select_cell(
 						child,
-						select_cell, select_point,
 						offset, extent,
+						choose_cell, choose_point,
 						weight_out, point_out);
 					return;
 				} else {
-					select_cell -= prime_ratio;
+					choose_cell -= prime_ratio;
 				}
 			}
 		} else if (_tree.type(parent) == CellType::LEAF) {
 			// Rescale the function evaluation point.
+			R volume = 1;
 			for (Dim dim = 0; dim < D; ++dim) {
-				(*point_out)[dim] = offset[dim] + extent[dim] * select_point[dim];
+				(*point_out)[dim] = offset[dim] + extent[dim] * choose_point[dim];
+				volume *= extent[dim];
 			}
-			*weight_out = _func(*point_out) / _tree.leaf_data(parent).prime;
+			FI weight_norm = _tree.leaf_data(parent).prime;
+			*weight_out = (volume * _func(*point_out)) / weight_norm;
 		}
-	}
-	void select(
-			CellHandle cell,
-			R select_cell, Point<D, R> select_point,
-			FR* weight_out, Point<D, R>* point_out) const {
-		Point<D, R> offset;
-		Point<D, R> extent;
-		offset.fill(0);
-		extent.fill(1);
-		return select(
-			cell,
-			select_cell, select_point,
-			offset, extent,
-			weight_out, point_out);
 	}
 
 public:
@@ -1069,6 +1061,7 @@ public:
 			_rnd() {
 		std::seed_seq seed_seq { seed };
 		_rnd.seed(seed_seq);
+		fill_primes(_tree.root());
 	}
 	CellGenerator(
 			char const* file_name,
@@ -1085,16 +1078,24 @@ public:
 		fill_primes(_tree.root());
 	}
 
-	void generate(FR* weight_out, Point<D, R>* point_out) {
+	void generate(FI* weight_out, Point<D, R>* point_out) {
 		// Generate random number.
 		std::uniform_real_distribution<R> dist(0, 1);
-		R select_cell = dist(_rnd);
-		Point<D, R> select_point;
+		R choose_cell = dist(_rnd);
+		Point<D, R> choose_point;
 		for (Dim dim = 0; dim < D; ++dim) {
-			select_point[dim] = dist(_rnd);
+			choose_point[dim] = dist(_rnd);
 		}
 		// Draw from the root cell.
-		select(_tree.root(), select_cell, select_point, weight_out, point_out);
+		Point<D, R> offset;
+		Point<D, R> extent;
+		offset.fill(0);
+		extent.fill(1);
+		select_cell(
+			_tree.root(),
+			offset, extent,
+			choose_cell, choose_point,
+			weight_out, point_out);
 	}
 };
 
