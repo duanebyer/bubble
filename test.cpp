@@ -7,15 +7,12 @@ using Real = double;
 static bubble::Dim const DIM = 3;
 static Real const PI = 3.1415926;
 
-Real func_test(bubble::Point<DIM, Real> x) {
-	Real result = 1;
-	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
-		result *= std::sin(PI * x[dim]);
-	}
-	return result;
-}
+Real func_test(bubble::Point<DIM, Real> x);
 
-int main(int argc, char** argv) {
+int thread_count();
+
+int main() {
+	std::cout << "Number of threads: " << thread_count() << std::endl;
 	auto builder = bubble::make_builder<DIM, Real>(func_test);
 	std::cout << "Exploring." << std::endl;
 	builder.explore();
@@ -36,15 +33,30 @@ int main(int argc, char** argv) {
 			<< weight << std::endl;
 		weights.push_back(weight);
 	}
-	Real weight_mean;
+	Real weight_mean = 0;
 	for (Real weight : weights) {
 		weight_mean += weight / weights.size();
 	}
-	Real weight_var;
+	Real weight_var = 0;
 	for (Real weight : weights) {
 		weight_var += (weight - weight_mean) * (weight - weight_mean) / weights.size();
 	}
 	std::cout << "Relative variance: " << weight_var / (weight_mean * weight_mean) << std::endl;
 	return 0;
+}
+
+Real func_test(bubble::Point<DIM, Real> x) {
+	Real result = 1;
+	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
+		result *= std::sin(PI * x[dim]);
+	}
+	return result;
+}
+
+int thread_count() {
+	int n = 0;
+	#pragma omp parallel reduction(+:n)
+	n += 1;
+	return n;
 }
 

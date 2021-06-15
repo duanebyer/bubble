@@ -6,7 +6,6 @@
 #include <fstream>
 #include <ios>
 #include <limits>
-#include <mutex>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -399,7 +398,6 @@ struct Stats final {
 		FI prime = est_prime();
 		FI mom2 = mom2_total / count;
 		FI var2 = (mom4_total - sq(mom2) * count) / (count - 1);
-		FI mom2_var = var2 / count;
 		FI vol = 0.5 * std::sqrt((prime_tot - prime) / prime * (var2 / sq(mom2)));
 		return vol;
 	}
@@ -469,30 +467,40 @@ class CellBuilder final {
 	// Random number engine.
 	RndL _rnd_left;
 
-	// The target efficiency must be reached in all cells to completely
-	// initialize the tree.
-	FI _target_rel_var;
-	FI _target_rel_var_sigma;
-	// The maximum quality a cell can have without a forced termination of
-	// exploration.
-	FI _max_cell_quality;
+public:
+	// Parameters that control various aspects of the exploration and tuning
+	// process.
+
+	// The target relative variance that must be reached in all cells.
+	FI target_rel_var = 0.01;
+	// The precision (in standard deviations) to which the relative variance
+	// must be reached.
+	FI target_rel_var_sigma = 1.5;
+	// The minimum cell volume (with volume equal to length^d) at which
+	// exploration terminates.
+	FI min_cell_length = 0.1;
+	// The maximum cell quality at which exploration terminates.
+	FI max_cell_quality = 1000.;
 	// Chi-squared needed for division.
-	FI _chi_squared_for_divide;
+	FI chi_squared_for_divide = 10.;
 	// Number of bins in edge histograms.
-	std::size_t _hist_num_bins;
+	std::size_t hist_num_bins = 100;
 	// Minimum number of samples needed per bin before starting cell division.
-	std::size_t _hist_num_per_bin;
-	// Maximum number of samples to be taken in a single cell in the exploration
-	// phase.
-	std::size_t _max_num_samples_explore;
-	// The quality to tune the cell generator to.
-	FI _tune_quality;
-	// How many stages to tune. Usually a handful is good enough.
-	std::size_t _tune_num_stages;
+	std::size_t hist_num_per_bin = 3;
+	// Minimum and maximum number of samples to be taken in a single cell during
+	// the exploration phase.
+	std::size_t min_cell_explore_count = 256;
+	std::size_t max_cell_explore_count = 1048576;
+	// The fraction of ideal performance to tune to within.
+	FI tune_quality = 0.95;
+	// How many stages to tune. More stages gives slightly better tuning
+	// performance.
+	std::size_t tune_num_stages = 10;
 	// Maximum number of samples to be taken in a single cell in the tuning
 	// phase.
-	std::size_t _max_num_samples_tune;
+	std::size_t max_cell_tune_count = 16777216;
 
+private:
 	// Gets a seed from the left generator.
 	std::vector<Seed> sample_rnd_left() {
 		std::uniform_int_distribution<Seed> dist;
@@ -553,21 +561,15 @@ class CellBuilder final {
 		}
 	}
 
-	// Generates points within a cell endlessly until one of three termination
-	// conditions:
-	//  * The efficiency reaches the target efficiency.
-	//  * The minimum possible efficiency is determined to be worse than the
-	//    target efficiency, so a cell division is requested.
-	//  * The allotted number of function evaluations is exceeded.
+	// Determines the quality of the distribution within a cell, and if
+	// necessary, divides it into subcells.
 	void explore_cell(
 			CellHandle cell,
-			Point<D, R> offset, Point<D, R> extent,
-			std::mutex& tree_mutex,
-			std::mutex& rnd_mutex) {
+			Point<D, R> offset, Point<D, R> extent) {
 		// If the cell has children, then recursively explore those children.
 		CellType type;
+		#pragma omp critical (bubble_tree)
 		{
-			std::lock_guard<std::mutex> lock(tree_mutex);
 			type = _tree.type(cell);
 		}
 		if (type == CellType::BRANCH) {
@@ -577,8 +579,8 @@ class CellBuilder final {
 					Point<D, R> offset_local;
 					Point<D, R> extent_local;
 					CellHandle child;
+					#pragma omp critical (bubble_tree)
 					{
-						std::lock_guard<std::mutex> lock(tree_mutex);
 						offset_local = _tree.offset_local(cell, child_idx);
 						extent_local = _tree.extent_local(cell, child_idx);
 						child = _tree.child(cell, child_idx);
@@ -589,10 +591,7 @@ class CellBuilder final {
 						offset_child[dim] = offset[dim] + extent[dim] * offset_local[dim];
 						extent_child[dim] = extent[dim] * extent_local[dim];
 					}
-					explore_cell(
-						child,
-						offset_child, extent_child,
-						tree_mutex, rnd_mutex);
+					explore_cell(child, offset_child, extent_child);
 				}
 			}
 			#pragma omp taskwait
@@ -607,8 +606,8 @@ class CellBuilder final {
 			Stats<FI> stats_init;
 			R mean;
 			bool is_root;
+			#pragma omp critical (bubble_tree)
 			{
-				std::lock_guard<std::mutex> lock(tree_mutex);
 				stats_init = _tree.leaf_data(cell).stats;
 				if (_tree.type(_tree.root()) == CellType::BRANCH) {
 					mean = _tree.branch_data(_tree.root()).mean;
@@ -620,21 +619,21 @@ class CellBuilder final {
 			// Histograms, one for each axis of the hypercube.
 			std::vector<Stats<FI> > hist_stats[D];
 			for (Dim dim = 0; dim < D; ++dim) {
-				hist_stats[dim].resize(_hist_num_bins);
+				hist_stats[dim].resize(hist_num_bins);
 			}
 
 			// Create a random number generator (a "right" generator) which will
 			// be used.
 			std::vector<Seed> seed;
+			#pragma omp critical (bubble_rand)
 			{
-				std::lock_guard<std::mutex> lock(rnd_mutex);
 				seed = sample_rnd_left();
 			}
 			std::seed_seq seed_seq(seed.begin(), seed.end());
 			RndR rnd(seed_seq);
 
 			// The next number at which termination conditions will be checked.
-			std::size_t next_count = 128;
+			std::size_t next_count = min_cell_explore_count;
 			while (true) {
 				for (std::size_t sample = stats.count; sample < next_count; ++sample) {
 					// Generate a point randomly within the cell and evaluate
@@ -644,14 +643,14 @@ class CellBuilder final {
 					std::size_t hist_idx[D];
 					std::uniform_int_distribution<std::size_t> idx_dist(
 						0,
-						_hist_num_bins - 1);
+						hist_num_bins - 1);
 					for (Dim dim = 0; dim < D; ++dim) {
 						std::size_t idx = idx_dist(rnd);
 						hist_idx[dim] = idx;
 						R lower = offset[dim]
-							+ extent[dim] * idx / _hist_num_bins;
+							+ extent[dim] * idx / hist_num_bins;
 						R upper = offset[dim]
-							+ extent[dim] * (idx + 1) / _hist_num_bins;
+							+ extent[dim] * (idx + 1) / hist_num_bins;
 						std::uniform_real_distribution<R> x_dist(lower, upper);
 						point[dim] = x_dist(rnd);
 					}
@@ -687,7 +686,7 @@ class CellBuilder final {
 
 				// This is an approximation for cell quality that works well for
 				// relative variances much less than one.
-				FI var_quality = _target_rel_var / rel_var;
+				FI var_quality = target_rel_var / rel_var;
 				// This ratio is calculated in this weird way because if we are
 				// exploring the root cell, then the `mean` variable doesn't
 				// have a good initial value yet.
@@ -695,17 +694,25 @@ class CellBuilder final {
 					stats_total.est_mean() / prime : mean / prime;
 				// TODO: Improve cell quality estimator.
 				FI cell_quality = 0.5 * var_quality * prime_quality;
+				// Termination will only be considered if the cell quality hits
+				// the threshold value. This ensures that no matter what other
+				// termination conditions are considered, the final cell
+				// generator will have good efficiency.
 				if (cell_quality > 1) {
-					FI rel_var_max = rel_var + _target_rel_var_sigma * rel_var_err;
-					bool var_good = (rel_var_max <= _target_rel_var);
-					bool quality_good = (cell_quality > _max_cell_quality);
-					// If the cell quality is very high without the efficiency
-					// meeting the target, then this indicates that the
-					// efficiency will likely never meet the target in this
-					// cell, so just terminate without meeting it.
-					if (var_good || quality_good) {
-						std::lock_guard<std::mutex> lock(tree_mutex);
-						_tree.leaf_data(cell).stats += stats;
+					FI rel_var_max = rel_var + target_rel_var_sigma * rel_var_err;
+					// Three possibilities for terminating:
+					// * Relative variance is smaller than target.
+					// * Cell is unimportant either because:
+					//   * Cell is low volume.
+					//   * Cell has low prime.
+					bool var_term = (rel_var_max <= target_rel_var);
+					bool volume_term = (volume <= std::pow(min_cell_length, D));
+					bool quality_term = (cell_quality >= max_cell_quality);
+					if (var_term || volume_term || quality_term) {
+						#pragma omp critical (bubble_tree)
+						{
+							_tree.leaf_data(cell).stats += stats;
+						}
 						return;
 					}
 				}
@@ -715,11 +722,11 @@ class CellBuilder final {
 				// different enough (by chi-squared test) from constant. Then,
 				// the division site that minimizes the new sum of primes is
 				// chosen.
-				if (stats.count >= _hist_num_per_bin * _hist_num_bins) {
+				if (stats.count >= hist_num_per_bin * hist_num_bins) {
 					FI chi_squared = 0;
 					FI prime_min = prime;
 					Dim dim_min = 0;
-					std::size_t bin_min = _hist_num_bins / 2;
+					std::size_t bin_min = hist_num_bins / 2;
 					Stats<FI> stats_lower_min;
 					Stats<FI> stats_upper_min;
 					for (Dim dim = 0; dim < D; ++dim) {
@@ -730,7 +737,7 @@ class CellBuilder final {
 						// Test division at each bin boundary. Note that the
 						// last bin is left off: such a data point would have
 						// `count_upper == 0`, which is difficult to deal with.
-						for (std::size_t bin = 0; bin < _hist_num_bins - 1; ++bin) {
+						for (std::size_t bin = 0; bin < hist_num_bins - 1; ++bin) {
 							// Update the integrated statistics.
 							stats_lower += hist_stats[dim][bin];
 							stats_upper -= hist_stats[dim][bin];
@@ -743,8 +750,8 @@ class CellBuilder final {
 							// the cell at this bin boundary. Need to scale by
 							// the volume fractions, to account for volume being
 							// included in the statistics measures.
-							R lambda_1 = R(bin + 1) / _hist_num_bins;
-							R lambda_2 = R(_hist_num_bins - bin - 1) / _hist_num_bins;
+							R lambda_1 = R(bin + 1) / hist_num_bins;
+							R lambda_2 = R(hist_num_bins - bin - 1) / hist_num_bins;
 							FI prime_var_lower;
 							FI prime_lower = (lambda_1 * stats_lower).est_prime(
 								&prime_var_lower);
@@ -781,28 +788,27 @@ class CellBuilder final {
 						}
 					}
 					// Average the chi-squared over every degree of freedom.
-					chi_squared /= D * _hist_num_bins;
-					if (chi_squared > _chi_squared_for_divide) {
-						std::lock_guard<std::mutex> lock(tree_mutex);
-						R lambda_1 = R(bin_min + 1) / _hist_num_bins;
-						R lambda_2 = R(_hist_num_bins - bin_min - 1) / _hist_num_bins;
+					chi_squared /= D * hist_num_bins;
+					if (chi_squared > chi_squared_for_divide) {
+						R lambda_1 = R(bin_min + 1) / hist_num_bins;
+						R lambda_2 = R(hist_num_bins - bin_min - 1) / hist_num_bins;
 						LeafData leaf_data[2] = {
 							{ lambda_1 * stats_lower_min },
 							{ lambda_2 * stats_upper_min },
 						};
-						_tree.split(
-							cell,
-							typename TreeType::Branch(dim_min, lambda_1),
-							BranchData(),
-							leaf_data);
-						// Every time a split occurs, re-calculate the means.
-						fill_means(_tree.root());
-						// Recursively calling will cause the new children to be
-						// explored.
-						explore_cell(
-							cell,
-							offset, extent,
-							tree_mutex, rnd_mutex);
+						#pragma omp critical (bubble_tree)
+						{
+							_tree.split(
+								cell,
+								typename TreeType::Branch(dim_min, lambda_1),
+								BranchData(),
+								leaf_data);
+							// Every split, re-calculate the means.
+							fill_means(_tree.root());
+						}
+						// Recursively calling will cause the new children
+						// to be explored.
+						explore_cell(cell, offset, extent);
 						return;
 					}
 				}
@@ -811,9 +817,11 @@ class CellBuilder final {
 				// If too much time has been spent sampling from this cell and
 				// a good division site has not been found, then just give up.
 				// No more exploration will be done in this cell.
-				if (stats.count >= _max_num_samples_explore) {
-					std::lock_guard<std::mutex> lock(tree_mutex);
-					_tree.leaf_data(cell).stats += stats;
+				if (stats.count >= max_cell_explore_count) {
+					#pragma omp critical (bubble_tree)
+					{
+						_tree.leaf_data(cell).stats += stats;
+					}
 					return;
 				}
 			}
@@ -827,10 +835,7 @@ class CellBuilder final {
 			CellHandle cell,
 			Point<D, R> offset, Point<D, R> extent,
 			FI prime_total,
-			std::size_t count,
-			std::mutex& rnd_mutex) {
-		// No tree mutex is needed for tuning, since only one thread will ever
-		// be writing to a single cell at a time.
+			std::size_t count) {
 		if (_tree.type(cell) == CellType::LEAF) {
 			// For a leaf, there are no children, so all of the samples will be
 			// uniformly distributed.
@@ -842,8 +847,8 @@ class CellBuilder final {
 
 			// Create a random number generator.
 			std::vector<Seed> seed;
+			#pragma omp critical (bubble_rand)
 			{
-				std::lock_guard<std::mutex> lock(rnd_mutex);
 				seed = sample_rnd_left();
 			}
 			std::seed_seq seed_seq(seed.begin(), seed.end());
@@ -911,11 +916,10 @@ class CellBuilder final {
 						child,
 						offset_child, extent_child,
 						prime_total,
-						counts_child[child_idx],
-						rnd_mutex);
+						counts_child[child_idx]);
 				}
 			}
-			#pragma omp taskawait
+			#pragma omp taskwait
 			return;
 		}
 	}
@@ -924,18 +928,7 @@ public:
 	CellBuilder(F func, Seed seed=std::random_device()()) :
 			_func(func),
 			_tree(LeafData()),
-			_rnd_left(),
-			// TODO: Properly initialize these parameters.
-			_target_rel_var(0.05),
-			_target_rel_var_sigma(2.),
-			_max_cell_quality(100.),
-			_chi_squared_for_divide(10.),
-			_hist_num_bins(100),
-			_hist_num_per_bin(3),
-			_max_num_samples_explore(1000000),
-			_tune_quality(0.95),
-			_tune_num_stages(4),
-			_max_num_samples_tune(10000000) {
+			_rnd_left() {
 		std::seed_seq seed_seq { seed };
 		_rnd_left.seed(seed_seq);
 	}
@@ -946,11 +939,11 @@ public:
 		offset.fill(0);
 		extent.fill(1);
 		CellHandle root = _tree.root();
-		std::mutex tree_mutex;
-		std::mutex rnd_mutex;
 		#pragma omp parallel
 		#pragma omp single
-		explore_cell(root, offset, extent, tree_mutex, rnd_mutex);
+		{
+			explore_cell(root, offset, extent);
+		}
 		FI prime_total = fill_primes(root);
 		fill_vols(root, prime_total);
 	}
@@ -966,22 +959,23 @@ public:
 		// process. Since the accuracy of the volatilities might not be good if
 		// the cell generator is not well tuned, the tuning is done in stages
 		// with the volatilities recalculated between each stage.
-		for (std::size_t stage = 0; stage < _tune_num_stages; ++stage) {
+		for (std::size_t stage = 0; stage < tune_num_stages; ++stage) {
 			// Find total primes and volatilities.
 			FI prime_total = fill_primes(root);
 			FI vol_total = fill_vols(root, prime_total);
 			// Find the number of samples needed to reach the desired accuracy.
 			std::size_t count =
-				std::size_t(1 / (2 * (1 - _tune_quality)) * sq(vol_total));
-			count = std::size_t(R(stage + 1) / _tune_num_stages * count);
-			if (count > _max_num_samples_tune) {
-				count = _max_num_samples_tune;
+				std::size_t(1 / (2 * (1 - tune_quality)) * sq(vol_total));
+			count = std::size_t(R(stage + 1) / tune_num_stages * count);
+			if (count > max_cell_tune_count) {
+				count = max_cell_tune_count;
 			}
 			// Sample from the cell generator.
-			std::mutex rnd_mutex;
 			#pragma omp parallel
 			#pragma omp single
-			tune_cell(root, offset, extent, prime_total, count, rnd_mutex);
+			{
+				tune_cell(root, offset, extent, prime_total, count);
+			}
 		}
 		FI prime_total = fill_primes(root);
 		fill_vols(root, prime_total);
