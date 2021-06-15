@@ -387,7 +387,7 @@ struct Stats final {
 		// Estimate the ideal prime value, which is given by:
 		//     F_c = \sqrt{V_c \int dx f^2(x)}
 		// with a small correction for bias added on.
-		FI prime = std::sqrt(mom2) * (1 + mom2_var / (8 * mom2));
+		FI prime = std::sqrt(mom2) * (1 + mom2_var / (8 * sq(mom2)));
 		// Error in estimate of prime value.
 		if (prime_err_out != nullptr) {
 			*prime_err_out = 0.5 * std::sqrt(mom2_var / mom2);
@@ -398,7 +398,9 @@ struct Stats final {
 		FI prime = est_prime();
 		FI mom2 = mom2_total / count;
 		FI var2 = (mom4_total - sq(mom2) * count) / (count - 1);
-		FI vol = 0.5 * std::sqrt((prime_tot - prime) / prime * (var2 / sq(mom2)));
+		FI vol = 0.5 * std::sqrt(
+			(prime / prime_tot) * ((prime_tot - prime) / prime_tot)
+			* (var2 / sq(mom2)));
 		return vol;
 	}
 };
@@ -472,17 +474,23 @@ public:
 	// process.
 
 	// The target relative variance that must be reached in all cells.
-	FI target_rel_var = 0.01;
+	FI target_rel_var = 0.001;
 	// The precision (in standard deviations) to which the relative variance
 	// must be reached.
-	FI target_rel_var_sigma = 1.5;
+	FI target_rel_var_sigma = 2;
 	// The minimum cell volume (with volume equal to length^d) at which
 	// exploration terminates.
 	FI min_cell_length = 0.1;
-	// The maximum cell quality at which exploration terminates.
+	// The minimum cell quality needed before exploration can ever terminate in
+	// a cell. Generally, this should be between 1 and 10.
+	FI min_cell_quality = 1;
+	// The maximum cell quality at which exploration terminates. A larger value
+	// pushes for a more uniform efficiency over the entire generator including
+	// in low-prime cells, where a smaller value will cause exploration to focus
+	// on the high-prime cells.
 	FI max_cell_quality = 1000.;
-	// Chi-squared needed for division.
-	FI chi_squared_for_divide = 10.;
+	// Chi-squared needed for a cell division to be triggered.
+	FI chi_squared_for_divide = 8.;
 	// Number of bins in edge histograms.
 	std::size_t hist_num_bins = 100;
 	// Minimum number of samples needed per bin before starting cell division.
@@ -490,14 +498,13 @@ public:
 	// Minimum and maximum number of samples to be taken in a single cell during
 	// the exploration phase.
 	std::size_t min_cell_explore_count = 256;
-	std::size_t max_cell_explore_count = 1048576;
-	// The fraction of ideal performance to tune to within.
-	FI tune_quality = 0.95;
+	std::size_t max_cell_explore_count = 524288;
+	// The accuracy to which to tune within.
+	FI tune_rel_accuracy = 0.01;
 	// How many stages to tune. More stages gives slightly better tuning
 	// performance.
 	std::size_t tune_num_stages = 10;
-	// Maximum number of samples to be taken in a single cell in the tuning
-	// phase.
+	// Maximum number of samples to be taken total in the tuning phase.
 	std::size_t max_cell_tune_count = 16777216;
 
 private:
@@ -562,17 +569,19 @@ private:
 	}
 
 	// Determines the quality of the distribution within a cell, and if
-	// necessary, divides it into subcells.
-	void explore_cell(
+	// necessary, divides it into subcells. Returns the number of underexplored
+	// cells in which exploration was terminated early.
+	std::size_t explore_cell(
 			CellHandle cell,
 			Point<D, R> offset, Point<D, R> extent) {
-		// If the cell has children, then recursively explore those children.
 		CellType type;
 		#pragma omp critical (bubble_tree)
 		{
 			type = _tree.type(cell);
 		}
 		if (type == CellType::BRANCH) {
+			// If the cell has children, then recursively explore them.
+			std::size_t underexplored = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				#pragma omp task
 				{
@@ -588,14 +597,19 @@ private:
 					Point<D, R> offset_child;
 					Point<D, R> extent_child;
 					for (Dim dim = 0; dim < D; ++dim) {
-						offset_child[dim] = offset[dim] + extent[dim] * offset_local[dim];
+						offset_child[dim] = offset[dim]
+							+ extent[dim] * offset_local[dim];
 						extent_child[dim] = extent[dim] * extent_local[dim];
 					}
-					explore_cell(child, offset_child, extent_child);
+					std::size_t underexplored_child = explore_cell(
+						child,
+						offset_child, extent_child);
+					#pragma omp atomic
+					underexplored += underexplored_child;
 				}
 			}
 			#pragma omp taskwait
-			return;
+			return underexplored;
 		} else {
 			R volume = 1;
 			for (Dim dim = 0; dim < D; ++dim) {
@@ -692,13 +706,15 @@ private:
 				// have a good initial value yet.
 				FI prime_quality = is_root ?
 					stats_total.est_mean() / prime : mean / prime;
-				// TODO: Improve cell quality estimator.
+				// TODO: Fix the cell quality measure. Right now, the cell
+				// quality is based off of a very bad model that breaks down
+				// especially badly when there are many small cells.
 				FI cell_quality = 0.5 * var_quality * prime_quality;
 				// Termination will only be considered if the cell quality hits
 				// the threshold value. This ensures that no matter what other
 				// termination conditions are considered, the final cell
 				// generator will have good efficiency.
-				if (cell_quality > 1) {
+				if (cell_quality > min_cell_quality) {
 					FI rel_var_max = rel_var + target_rel_var_sigma * rel_var_err;
 					// Three possibilities for terminating:
 					// * Relative variance is smaller than target.
@@ -713,7 +729,7 @@ private:
 						{
 							_tree.leaf_data(cell).stats += stats;
 						}
-						return;
+						return 0;
 					}
 				}
 
@@ -750,8 +766,10 @@ private:
 							// the cell at this bin boundary. Need to scale by
 							// the volume fractions, to account for volume being
 							// included in the statistics measures.
-							R lambda_1 = R(bin + 1) / hist_num_bins;
-							R lambda_2 = R(hist_num_bins - bin - 1) / hist_num_bins;
+							R lambda_1 = R(bin + 1)
+								/ hist_num_bins;
+							R lambda_2 = R(hist_num_bins - bin - 1)
+								/ hist_num_bins;
 							FI prime_var_lower;
 							FI prime_lower = (lambda_1 * stats_lower).est_prime(
 								&prime_var_lower);
@@ -790,8 +808,10 @@ private:
 					// Average the chi-squared over every degree of freedom.
 					chi_squared /= D * hist_num_bins;
 					if (chi_squared > chi_squared_for_divide) {
-						R lambda_1 = R(bin_min + 1) / hist_num_bins;
-						R lambda_2 = R(hist_num_bins - bin_min - 1) / hist_num_bins;
+						R lambda_1 = R(bin_min + 1)
+							/ hist_num_bins;
+						R lambda_2 = R(hist_num_bins - bin_min - 1)
+							/ hist_num_bins;
 						LeafData leaf_data[2] = {
 							{ lambda_1 * stats_lower_min },
 							{ lambda_2 * stats_upper_min },
@@ -808,12 +828,11 @@ private:
 						}
 						// Recursively calling will cause the new children
 						// to be explored.
-						explore_cell(cell, offset, extent);
-						return;
+						return explore_cell(cell, offset, extent);
 					}
 				}
 
-				// Termination condition 3. Oversampled.
+				// Termination condition 3. Undersampled.
 				// If too much time has been spent sampling from this cell and
 				// a good division site has not been found, then just give up.
 				// No more exploration will be done in this cell.
@@ -822,7 +841,7 @@ private:
 					{
 						_tree.leaf_data(cell).stats += stats;
 					}
-					return;
+					return 1;
 				}
 			}
 		}
@@ -836,37 +855,7 @@ private:
 			Point<D, R> offset, Point<D, R> extent,
 			FI prime_total,
 			std::size_t count) {
-		if (_tree.type(cell) == CellType::LEAF) {
-			// For a leaf, there are no children, so all of the samples will be
-			// uniformly distributed.
-			R volume = 1;
-			for (Dim dim = 0; dim < D; ++dim) {
-				volume *= extent[dim];
-			}
-			Stats<FI> stats;
-
-			// Create a random number generator.
-			std::vector<Seed> seed;
-			#pragma omp critical (bubble_rand)
-			{
-				seed = sample_rnd_left();
-			}
-			std::seed_seq seed_seq(seed.begin(), seed.end());
-			RndR rnd(seed_seq);
-
-			for (std::size_t sample = 0; sample < count; ++sample) {
-				Point<D, R> point;
-				for (Dim dim = 0; dim < D; ++dim) {
-					R lower = offset[dim];
-					R upper = offset[dim] + extent[dim];
-					std::uniform_real_distribution<R> x_dist(lower, upper);
-					point[dim] = x_dist(rnd);
-				}
-				stats.update(volume * _func(point));
-			}
-			_tree.leaf_data(cell).stats += stats;
-			return;
-		} else {
+		if (_tree.type(cell) == CellType::BRANCH) {
 			// For a branch, estimate the volatility of each child. The counts
 			// will be divided up according to that.
 			FI vols[TreeType::NUM_CHILDREN];
@@ -909,7 +898,8 @@ private:
 					Point<D, R> offset_child;
 					Point<D, R> extent_child;
 					for (Dim dim = 0; dim < D; ++dim) {
-						offset_child[dim] = offset[dim] + extent[dim] * offset_local[dim];
+						offset_child[dim] = offset[dim]
+							+ extent[dim] * offset_local[dim];
 						extent_child[dim] = extent[dim] * extent_local[dim];
 					}
 					tune_cell(
@@ -920,6 +910,36 @@ private:
 				}
 			}
 			#pragma omp taskwait
+			return;
+		} else {
+			// For a leaf, there are no children, so all of the samples will be
+			// uniformly distributed.
+			R volume = 1;
+			for (Dim dim = 0; dim < D; ++dim) {
+				volume *= extent[dim];
+			}
+			Stats<FI> stats;
+
+			// Create a random number generator.
+			std::vector<Seed> seed;
+			#pragma omp critical (bubble_rand)
+			{
+				seed = sample_rnd_left();
+			}
+			std::seed_seq seed_seq(seed.begin(), seed.end());
+			RndR rnd(seed_seq);
+
+			for (std::size_t sample = 0; sample < count; ++sample) {
+				Point<D, R> point;
+				for (Dim dim = 0; dim < D; ++dim) {
+					R lower = offset[dim];
+					R upper = offset[dim] + extent[dim];
+					std::uniform_real_distribution<R> x_dist(lower, upper);
+					point[dim] = x_dist(rnd);
+				}
+				stats.update(volume * _func(point));
+			}
+			_tree.leaf_data(cell).stats += stats;
 			return;
 		}
 	}
@@ -933,28 +953,34 @@ public:
 		_rnd_left.seed(seed_seq);
 	}
 
-	void explore() {
+	std::size_t explore() {
 		Point<D, R> offset;
 		Point<D, R> extent;
 		offset.fill(0);
 		extent.fill(1);
 		CellHandle root = _tree.root();
+		std::size_t underexplored_count;
 		#pragma omp parallel
 		#pragma omp single
 		{
-			explore_cell(root, offset, extent);
+			underexplored_count = explore_cell(root, offset, extent);
 		}
+		fill_means(root);
 		FI prime_total = fill_primes(root);
 		fill_vols(root, prime_total);
+		return underexplored_count;
 	}
 
 	// Tunes the cell generator to within some fraction of the ideal efficiency.
-	void tune() {
+	// Returns the number of events "undertuned" by (events requested that went
+	// beyond the upper limit).
+	std::size_t tune() {
 		Point<D, R> offset;
 		Point<D, R> extent;
 		offset.fill(0);
 		extent.fill(1);
 		CellHandle root = _tree.root();
+		std::size_t undertuned_count = 0;
 		// The tuning process is made somewhat complicated by the staged
 		// process. Since the accuracy of the volatilities might not be good if
 		// the cell generator is not well tuned, the tuning is done in stages
@@ -964,10 +990,12 @@ public:
 			FI prime_total = fill_primes(root);
 			FI vol_total = fill_vols(root, prime_total);
 			// Find the number of samples needed to reach the desired accuracy.
+			FI tune_accuracy = target_rel_var * tune_rel_accuracy;
 			std::size_t count =
-				std::size_t(1 / (2 * (1 - tune_quality)) * sq(vol_total));
+				std::size_t(sq(vol_total) / tune_accuracy);
 			count = std::size_t(R(stage + 1) / tune_num_stages * count);
 			if (count > max_cell_tune_count) {
+				undertuned_count = count - max_cell_tune_count;
 				count = max_cell_tune_count;
 			}
 			// Sample from the cell generator.
@@ -977,12 +1005,27 @@ public:
 				tune_cell(root, offset, extent, prime_total, count);
 			}
 		}
+		fill_means(root);
 		FI prime_total = fill_primes(root);
 		fill_vols(root, prime_total);
+		return undertuned_count;
 	}
 
 	FI prime() const {
-		return _tree.branch_data(_tree.root()).prime;
+		CellHandle root = _tree.root();
+		if (_tree.type(root) == CellType::BRANCH) {
+			return _tree.branch_data(root).prime;
+		} else {
+			return _tree.leaf_data(root).stats.est_prime();
+		}
+	}
+	FI mean() const {
+		CellHandle root = _tree.root();
+		if (_tree.type(root) == CellType::BRANCH) {
+			return _tree.branch_data(root).mean;
+		} else {
+			return _tree.leaf_data(root).stats.est_mean();
+		}
 	}
 };
 
@@ -1039,8 +1082,10 @@ class CellGenerator final {
 				CellHandle child = _tree.child(parent, child_idx);
 				// Each child has a chance of being selected proportional to its
 				// prime value.
-				FI prime_ratio = _tree.leaf_data(child).prime / _tree.branch_data(parent).prime;
-				if (choose_cell <= prime_ratio || child_idx == TreeType::NUM_CHILDREN - 1) {
+				FI prime_ratio = _tree.leaf_data(child).prime
+					/ _tree.branch_data(parent).prime;
+				if (choose_cell <= prime_ratio
+						|| child_idx == TreeType::NUM_CHILDREN - 1) {
 					// Scale `choose_cell` to be between 0 and 1 again.
 					choose_cell /= prime_ratio;
 					// Adjust offset and extent for the next level of recursion.
