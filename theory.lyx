@@ -1,0 +1,1741 @@
+#LyX 2.3 created this file. For more info see http://www.lyx.org/
+\lyxformat 544
+\begin_document
+\begin_header
+\save_transient_properties true
+\origin unavailable
+\textclass article
+\use_default_options true
+\maintain_unincluded_children false
+\language english
+\language_package default
+\inputencoding auto
+\fontencoding global
+\font_roman "default" "default"
+\font_sans "default" "default"
+\font_typewriter "default" "default"
+\font_math "auto" "auto"
+\font_default_family default
+\use_non_tex_fonts false
+\font_sc false
+\font_osf false
+\font_sf_scale 100 100
+\font_tt_scale 100 100
+\use_microtype false
+\use_dash_ligatures true
+\graphics default
+\default_output_format default
+\output_sync 0
+\bibtex_command default
+\index_command default
+\paperfontsize default
+\use_hyperref false
+\papersize default
+\use_geometry false
+\use_package amsmath 1
+\use_package amssymb 1
+\use_package cancel 1
+\use_package esint 1
+\use_package mathdots 1
+\use_package mathtools 1
+\use_package mhchem 1
+\use_package stackrel 1
+\use_package stmaryrd 1
+\use_package undertilde 1
+\cite_engine basic
+\cite_engine_type default
+\use_bibtopic false
+\use_indices false
+\paperorientation portrait
+\suppress_date false
+\justification true
+\use_refstyle 1
+\use_minted 0
+\index Index
+\shortcut idx
+\color #008000
+\end_index
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\paragraph_indentation default
+\is_math_indent 0
+\math_numbering_side default
+\quotes_style english
+\dynamic_quotes 0
+\papercolumns 1
+\papersides 1
+\paperpagestyle default
+\tracking_changes false
+\output_changes false
+\html_math_output 0
+\html_css_as_file 0
+\html_be_strict false
+\end_header
+
+\begin_body
+
+\begin_layout Title
+An algorithm for Monte-Carlo event generation
+\end_layout
+
+\begin_layout Author
+Duane Byer
+\end_layout
+
+\begin_layout Section
+Monte-Carlo event generators
+\end_layout
+
+\begin_layout Standard
+Monte-Carlo event generators produce identical independent random events
+ 
+\begin_inset Formula $X_{n}\sim P\left(x\right)$
+\end_inset
+
+ within a region of space 
+\begin_inset Formula $\Omega\in\mathbb{R}^{d}$
+\end_inset
+
+, weighted by 
+\begin_inset Formula $w:\Omega\rightarrow\mathbb{R}$
+\end_inset
+
+, that approximate some target distribution 
+\begin_inset Formula $\rho:\Omega\rightarrow\mathbb{R}$
+\end_inset
+
+.
+ The events 
+\begin_inset Formula $x_{n}$
+\end_inset
+
+ approximate 
+\begin_inset Formula $\rho$
+\end_inset
+
+ in the sense that the integral of any general observable 
+\begin_inset Formula $\mathcal{O}:\Omega\rightarrow\mathbb{R}$
+\end_inset
+
+ by 
+\begin_inset Formula $\rho$
+\end_inset
+
+ can be approximated through Monte-Carlo integration.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{equation}
+\mathrm{E}\left[\mathcal{O}\right]=\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)\mathcal{O}\left(x\right)=\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)+O\left(\frac{1}{N}\right)\label{eq:observable-def}
+\end{equation}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Such a generator can be used to approximate the total integral of the distributi
+on 
+\begin_inset Formula $\rho$
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)=\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)+O\left(\frac{1}{N}\right)
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+For these properties to hold, the weight function 
+\begin_inset Formula $w$
+\end_inset
+
+ is constrained.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+\mathrm{E}\left[\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)\right] & =\frac{1}{N}\sum_{n=1}^{N}\int_{\Omega}\mathrm{d}x_{n}\:P\left(x_{n}\right)w\left(x_{n}\right)\mathcal{O}\left(x_{n}\right)\nonumber \\
+ & =\int_{\Omega}\mathrm{d}x\:P\left(x\right)w\left(x\right)\mathcal{O}\left(x\right)\nonumber \\
+w\left(x\right) & =\frac{\rho\left(x\right)}{P\left(x\right)}\label{eq:weight-def}
+\end{align}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Generators such as this are useful in particle physics, for simulation of
+ collider experiments.
+ The underlying distribution of particles in a collider experiment comes
+ from the different cross-section 
+\begin_inset Formula $d\sigma$
+\end_inset
+
+.
+ The particles must then be detected (with some phase-space dependent probabilit
+y), which can be modeled as an observable over the distribution.
+ In such a simulation, the underlying events must be unweighted (
+\begin_inset Formula $w_{k}=w=\text{const.}$
+\end_inset
+
+) to properly simulate the statistics seen by a detector.
+ If the distribution is not unweighted, then certain highly weighted events
+ will skew the statistics so that some 
+\begin_inset Formula $N$
+\end_inset
+
+ simulated events only correspond to an effective 
+\begin_inset Formula $N_{\text{eff}}<N$
+\end_inset
+
+ physical events.
+\end_layout
+
+\begin_layout Standard
+We will define the efficiency of a generator to be the ratio 
+\begin_inset Formula $\varepsilon=\sqrt{N_{\text{eff}}/N}$
+\end_inset
+
+.
+ The square root is so that the efficiency can also be thought of as the
+ ratio of the physical errors to the simulation errors in all observables.
+ If the efficiency is at its maximum value of 
+\begin_inset Formula $1$
+\end_inset
+
+, then the generator is ideal: all observables will converge to their true
+ values as quickly as possible.
+\end_layout
+
+\begin_layout Standard
+The efficiency can be calculated using the distribution of weights.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+\varepsilon & =\frac{\mathrm{E}\left[w\left(X\right)\right]}{\sqrt{\mathrm{E}\left[w\left(X\right)^{2}\right]}}\nonumber \\
+ & =\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\sqrt{\int_{\Omega}\mathrm{d}x\:\frac{\rho\left(x\right)^{2}}{P\left(x\right)}}}\label{eq:efficiency-def}
+\end{align}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+From equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:efficiency-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+, it can be seen that unweighted events (so that 
+\begin_inset Formula $\mathrm{E}\left[w\left(X\right)^{2}\right]=\mathrm{E}\left[w\left(X\right)\right]^{2}$
+\end_inset
+
+) will maximize the efficiency at 
+\begin_inset Formula $1$
+\end_inset
+
+, while any other distribution will result in a lower efficiency.
+\end_layout
+
+\begin_layout Section
+Cell generators
+\end_layout
+
+\begin_layout Standard
+For this paper, we will consider a special class of generators called 
+\emph on
+cell generators
+\emph default
+.
+ A cell generator consists of 
+\begin_inset Formula $K$
+\end_inset
+
+ non-overlapping spatial regions (
+\begin_inset Quotes eld
+\end_inset
+
+cells
+\begin_inset Quotes erd
+\end_inset
+
+), each covering a region 
+\begin_inset Formula $\Omega_{k}$
+\end_inset
+
+ so that they completely cover a total region 
+\begin_inset Formula $\Omega$
+\end_inset
+
+.
+ Each cell is parameterized by a 
+\emph on
+prime
+\emph default
+ 
+\begin_inset Formula $p_{k}$
+\end_inset
+
+ which sum to 
+\begin_inset Formula $p$
+\end_inset
+
+, and a volume 
+\begin_inset Formula $V_{k}$
+\end_inset
+
+, which sum to 
+\begin_inset Formula $V$
+\end_inset
+
+.
+ A cell generator produces events 
+\begin_inset Formula $X_{k}$
+\end_inset
+
+ with a probability distribution 
+\begin_inset Formula $P\left(x\right)$
+\end_inset
+
+ that is defined to be constant in every cell, weighted by the primes.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{equation}
+P\left(x\right)=\frac{1}{p}\begin{cases}
+p_{1} & x\in\Omega_{1}\\
+p_{2} & x\in\Omega_{2}\\
+\vdots & \vdots\\
+p_{K} & x\in\Omega_{K}
+\end{cases}\label{eq:prime-def}
+\end{equation}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+A number of Monte-Carlo integration algorithms use cell generators internally,
+ such as the VEGAS algorithm.
+\end_layout
+
+\begin_layout Standard
+The efficiency of a cell generator can be easily found from equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:efficiency-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+\int_{\Omega}\mathrm{d}x\:\frac{\rho\left(x\right)^{2}}{P\left(x\right)} & =\sum_{k=1}^{K}\frac{\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)^{2}}{p_{k}/\left(V_{k}p\right)}\nonumber \\
+\varepsilon & =\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\sqrt{p\sum_{k=1}^{K}\frac{V_{k}}{p_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)^{2}}}\label{eq:efficiency-cell-def}
+\end{align}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+If there is freedom to choose the primes 
+\begin_inset Formula $p_{k}$
+\end_inset
+
+, then the efficiency can be optimized.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+0 & =\left.\left(\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)\right)\left(\partial_{p_{k^{\prime}}}\varepsilon^{-1}\right)\right|_{p_{k}=p_{k}^{(0)}}\\
+ & =\sum_{k=1}^{K}\frac{V_{k}}{p_{k}^{(0)}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)^{2}-p^{(0)}\frac{V_{k^{\prime}}}{\left(p_{k^{\prime}}^{(0)}\right)^{2}}\int_{\Omega_{k^{\prime}}}\mathrm{d}x\:\rho\left(x\right)^{2}
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Solving this gives the optimal prime value for each cell.
+\begin_inset Formula 
+\begin{equation}
+p_{k}^{(0)}=\sqrt{V_{k}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)^{2}}\label{eq:prime-opt-def}
+\end{equation}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Now, the optimal efficiency of a cell generator is
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{equation}
+\varepsilon^{(0)}=\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{p^{(0)}}\label{eq:efficiency-opt-def}
+\end{equation}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Furthermore, equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:efficiency-cell-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+ for a general efficiency can be rewritten as
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula 
+\begin{equation}
+\varepsilon=\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\sqrt{p\sum_{k=1}^{K}\left(\frac{p_{k}^{(0)}}{p_{k}}\right)p_{k}^{(0)}}}\label{eq:efficiency-cell-v2-def}
+\end{equation}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+From this expression, we can see that for a cell generator, the optimal
+ total prime 
+\begin_inset Formula $p^{(0)}$
+\end_inset
+
+ is an over-estimate of the integral of the distribution.
+ In fact, with the definitions
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+\mu_{\rho,k} & =\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)\nonumber \\
+\sigma_{\rho,k}^{2} & =\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\left(\rho\left(x\right)-\mu_{\rho,k}\right)^{2}\label{eq:distribution-moments-def}
+\end{align}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+the optimal prime value can written in a suggestive form using equation
+ 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:prime-opt-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+p_{k}^{(0)}=V_{k}\sqrt{\mu_{\rho,k}^{2}+\sigma_{\rho,k}^{2}}
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+This shows that for a cell generator to approach an optimal efficiency of
+ 
+\begin_inset Formula $1$
+\end_inset
+
+, the cells must be chosen to minimize the relative distribution variance
+ 
+\begin_inset Formula $\sigma_{\rho,k}^{2}/\mu_{\rho,k}^{2}$
+\end_inset
+
+ within each cell.
+\end_layout
+
+\begin_layout Standard
+The 
+\begin_inset Quotes eld
+\end_inset
+
+optimal
+\begin_inset Quotes erd
+\end_inset
+
+ efficiency 
+\begin_inset Formula $\varepsilon_{1}^{(0)}$
+\end_inset
+
+ of a single-cell generator will be useful on occasion.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{equation}
+\varepsilon_{1}^{(0)}=\varepsilon_{1}=\frac{\mu_{\rho}}{\sqrt{\mu_{\rho}^{2}+\sigma_{\rho}^{2}}}\label{eq:efficiency-single-def}
+\end{equation}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Note that the 
+\begin_inset Quotes eld
+\end_inset
+
+optimal
+\begin_inset Quotes erd
+\end_inset
+
+ efficiency is really the only efficiency possible for a single-cell generator.
+ Since the primes are the relative probabilities of a certain cell being
+ selected, there are no meaningful degrees of freedom to optimize over for
+ a single-cell generator.
+\end_layout
+
+\begin_layout Standard
+Since cell generators are themselves aggregates of many individual cells,
+ there is a natural method by which two cell generators 
+\begin_inset Formula $A$
+\end_inset
+
+ and 
+\begin_inset Formula $B$
+\end_inset
+
+ can be combined to form a new cell generator 
+\begin_inset Formula $C$
+\end_inset
+
+.
+ As can be seen in equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:prime-opt-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+, the optimal primes of the cells will not change during this process, so
+ the new optimal efficiency 
+\begin_inset Formula $\varepsilon_{C}$
+\end_inset
+
+ can easily be found.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+\varepsilon_{C}^{(0)} & =\frac{\int_{\Omega_{A}}\mathrm{d}x\:\rho\left(x\right)+\int_{\Omega_{B}}\mathrm{d}x\:\rho\left(x\right)}{p_{A}^{(0)}+p_{B}^{(0)}}\nonumber \\
+ & =\frac{p_{A}^{(0)}\varepsilon_{A}^{(0)}+p_{B}^{(0)}\varepsilon_{B}^{(0)}}{p_{A}^{(0)}+p_{B}^{(0)}}\label{eq:efficiency-combination-def}
+\end{align}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+The optimal efficiencies can be combined through a simple weighted average.
+ This process can be used to build a complete cell generator starting from
+ single cells (see equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:efficiency-single-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+).
+\end_layout
+
+\begin_layout Section
+Tuning a cell generator
+\end_layout
+
+\begin_layout Standard
+Suppose we have a cell generator for which the primes 
+\begin_inset Formula $p_{k}$
+\end_inset
+
+ have not yet been chosen.
+ Furthermore, suppose the distribution 
+\begin_inset Formula $\rho$
+\end_inset
+
+ cannot be integrated either analytically or numerically (perhaps it is
+ high-dimensional).
+ How should we choose the primes 
+\begin_inset Formula $p_{k}$
+\end_inset
+
+ to approach the optimal values 
+\begin_inset Formula $p_{k}^{(0)}$
+\end_inset
+
+?
+\end_layout
+
+\begin_layout Standard
+The method we will outline here uses Monte-Carlo integration to estimate
+ the integral found in equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:prime-opt-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+.
+ The method can be applied to a single cell to estimate 
+\begin_inset Formula $p_{k}^{(0)}$
+\end_inset
+
+ with some error.
+ Then, we will discuss the contributions of these errors to the efficiency
+ 
+\begin_inset Formula $\varepsilon$
+\end_inset
+
+ of the entire cell generator.
+\end_layout
+
+\begin_layout Subsection
+Tuning a single cell
+\end_layout
+
+\begin_layout Standard
+To find the optimal 
+\begin_inset Formula $p_{k}$
+\end_inset
+
+ for a single cell through Monte-Carlo integration without previous knowledge
+ about the distribution 
+\begin_inset Formula $\rho$
+\end_inset
+
+, we will use a series of 
+\begin_inset Formula $N$
+\end_inset
+
+ identical independent variables 
+\begin_inset Formula $X_{n}\sim\text{Uniform}\left(\Omega_{k}\right)$
+\end_inset
+
+.
+ Then, define 
+\begin_inset Formula $R_{n}=\rho\left(X_{n}\right)$
+\end_inset
+
+ satisfying
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\mathrm{E}\left[R_{n}\right] & =\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)\\
+ & =\mu_{\rho,k}\\
+\mathrm{E}\left[R_{n}^{2}\right] & =\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)^{2}\\
+ & =\mu_{\rho,k}^{2}+\sigma_{\rho,k}^{2}
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+The means 
+\begin_inset Formula $\overline{R}$
+\end_inset
+
+ and 
+\begin_inset Formula $\overline{R^{2}}$
+\end_inset
+
+ can be used as estimators for these quantities.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\mathrm{E}\left[\overline{R}\right] & =\mu_{R}=\mu_{\rho,k} & \mathrm{Var}\left[\overline{R}\right] & =\frac{\sigma_{R}^{2}}{N}=\frac{\sigma_{\rho,k}^{2}}{N}\\
+\mathrm{E}\left[\overline{R^{2}}\right] & =\mu_{R^{2}}=\mu_{\rho,k}^{2}+\sigma_{\rho,k}^{2} & \mathrm{Var}\left[\overline{R^{2}}\right] & =\frac{\sigma_{R^{2}}^{2}}{N}
+\end{align*}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+For finding the optimal prime 
+\begin_inset Formula $p_{k}^{(0)}$
+\end_inset
+
+, a slightly different estimator is needed.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+p_{k}^{(0)}=V_{k}\sqrt{\mathrm{E}\left[\overline{R^{2}}\right]}
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Let 
+\begin_inset Formula $P_{k}$
+\end_inset
+
+ be an estimator for 
+\begin_inset Formula $p_{k}^{(0)}$
+\end_inset
+
+.
+ Naively, it could be written as
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+P_{k}^{\mathrm{naive}}=V_{k}\sqrt{\overline{R^{2}}}
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+However, this estimator has some bias due to the non-linearity of the square
+ root.
+ To correct that, assume that the estimator 
+\begin_inset Formula $\overline{R^{2}}$
+\end_inset
+
+ differs from its mean by some small error 
+\begin_inset Formula $\delta\overline{R^{2}}$
+\end_inset
+
+.
+ Then, use the Taylor expansion of the square root to correct the bias in
+ 
+\begin_inset Formula $P_{k}^{\mathrm{naive}}$
+\end_inset
+
+ to a leading order.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+P_{k}^{\mathrm{naive}} & =V_{k}\sqrt{\mu_{R^{2}}+\delta\overline{R^{2}}}\\
+ & =V_{k}\sqrt{\mu_{R^{2}}}\left(1+\frac{1}{2}\frac{\delta\overline{R^{2}}}{\mu_{R^{2}}}-\frac{1}{8}\left(\frac{\delta\overline{R^{2}}}{\mu_{R^{2}}}\right)^{2}+O\left(\frac{1}{N^{3}}\right)\right)\\
+P_{k}^{\mathrm{naive}}+\frac{1}{8}V_{k}\sqrt{\mu_{R^{2}}}\left(\frac{\delta\overline{R^{2}}}{\mu_{R^{2}}}\right)^{2} & =V_{k}\sqrt{\mu_{R^{2}}}\left(1+\frac{1}{2}\frac{\delta\overline{R^{2}}}{\mu_{R^{2}}}+O\left(\frac{1}{N^{3}}\right)\right)
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Since 
+\begin_inset Formula $\mathrm{E}\left[\delta\overline{R^{2}}\right]=0$
+\end_inset
+
+, the term on right-hand-side has the correct expectation to order 
+\begin_inset Formula $O\left(\frac{1}{N^{3}}\right)$
+\end_inset
+
+.
+ Furthermore, since the next term is of an odd order, and since 
+\begin_inset Formula $\delta\overline{R^{2}}$
+\end_inset
+
+ is likely nearly even due to central limit theorem, in practice the right-hand-
+side will be accurate to order 
+\begin_inset Formula $O\left(\frac{1}{N^{4}}\right)$
+\end_inset
+
+.
+ The left-hand-side involves 
+\begin_inset Formula $\mu_{R^{2}}$
+\end_inset
+
+, which can be replaced with the unbiased estimate 
+\begin_inset Formula $\overline{R^{2}}$
+\end_inset
+
+ without losing the order of accuracy.
+ Altogether, this gives the following good estimator for 
+\begin_inset Formula $p_{k}^{\left(0\right)}$
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+P_{k} & =P_{k}^{\mathrm{naive}}+\frac{1}{8}V_{k}\sqrt{\overline{R^{2}}}\left(\frac{\delta\overline{R^{2}}}{\overline{R^{2}}}\right)^{2}\nonumber \\
+ & =V_{k}\sqrt{\overline{R^{2}}}\left(1+\frac{1}{8}\left(\frac{\delta\overline{R^{2}}}{\overline{R^{2}}}\right)^{2}\right)\label{eq:prime-estimator-def}
+\end{align}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula 
+\begin{align*}
+\mathrm{E}\left[P_{k}\right] & =p_{k}^{(0)}+O\left(\frac{1}{N^{3}}\right) & \mathrm{Var}\left[P_{k}\right] & =\frac{1}{4}\left(p_{k}^{(0)}\right)^{2}\frac{\mathrm{Var}\left[\overline{R^{2}}\right]}{\mathrm{E}\left[\overline{R}\right]^{2}}+O\left(\frac{1}{N^{2}}\right)\\
+ &  &  & =\frac{1}{4N}\left(p_{k}^{(0)}\right)^{2}\frac{\sigma_{R^{2}}^{2}}{\mu_{R^{2}}^{2}}+O\left(\frac{1}{N^{2}}\right)
+\end{align*}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+Tuning many cells
+\end_layout
+
+\begin_layout Standard
+Once each cell has been tuned to near its optimal prime, the total efficiency
+ will be near to the optimal efficiency.
+ However, there will be some cost to the efficiency due to incorrect prime
+ choices.
+ To model this, consider each prime to be an independent random variable
+ 
+\begin_inset Formula $P_{k}$
+\end_inset
+
+ centered on the optimal prime value 
+\begin_inset Formula $p_{k}^{(0)}$
+\end_inset
+
+ with some small variation 
+\begin_inset Formula $\delta P_{k}$
+\end_inset
+
+.
+ Although the optimal prime estimator from equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:prime-estimator-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+ is not completely unbiased, we can treat it as if it is since the bias
+ is much smaller than the standard deviation.
+ Then use the expression for efficiency from equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:efficiency-cell-v2-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\varepsilon & =\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\left[\left(p^{(0)}+\delta P\right)\sum_{k=1}^{K}\left(\frac{p_{k}^{(0)}}{p_{k}^{(0)}+\delta P_{k}}\right)p_{k}^{(0)}\right]^{\frac{1}{2}}}\\
+ & =\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\left[p^{(0)}\left(1+\frac{\delta P}{p^{(0)}}\right)\sum_{k=1}^{K}p_{k}^{(0)}\left(1-\frac{\delta P_{k}}{p_{k}^{(0)}}+\left(\frac{\delta P_{k}}{p_{k}^{(0)}}\right)^{2}+O\left(\left(\delta P\right)^{3}\right)\right)\right]^{\frac{1}{2}}}\\
+ & =\varepsilon^{(0)}\left[1+\frac{1}{2}\left(\frac{\delta P}{p^{(0)}}\right)^{2}-\frac{1}{2}\sum_{k=1}^{K}\frac{\left(\delta P_{k}\right)^{2}}{p^{(0)}p_{k}^{(0)}}+O\left(\left(\delta P\right)^{3}\right)\right]
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+There are only second order contributions because the expansion was around
+ a minimum.
+ The expecation of the efficiency will depend on variances of the errors
+ in the primes.
+ Assuming independence, the expectation can be simplified.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{equation}
+\mathrm{E}\left[\varepsilon\right]=\varepsilon^{(0)}\left[1-\frac{1}{2}\sum_{k=1}^{K}\frac{p^{(0)}-p_{k}^{(0)}}{p_{k}^{(0)}}\frac{\mathrm{E}\left[\left(\delta P_{k}\right)^{2}\right]}{\left(p^{(0)}\right)^{2}}+O\left(\left(\delta P\right)^{3}\right)\right]\label{eq:efficiency-tune-expectation-def}
+\end{equation}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Assuming the 
+\begin_inset Formula $\frac{1}{\sqrt{N}}$
+\end_inset
+
+ form for the errors 
+\begin_inset Formula $\delta P_{k}$
+\end_inset
+
+ as supported by equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:prime-estimator-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+, the expectation can be written in a form amenable to optimization.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+\mathrm{E}\left[\varepsilon\right]=\varepsilon^{(0)}\left[1-\frac{1}{2}\sum_{k=1}^{K}\frac{A_{k}}{N_{k}}\right]
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Where 
+\begin_inset Formula $N_{k}$
+\end_inset
+
+ is the number of samples generated in any given cell, and 
+\begin_inset Formula $A_{k}$
+\end_inset
+
+ is the rest of the term that has no 
+\begin_inset Formula $N_{k}$
+\end_inset
+
+ dependence.
+\end_layout
+
+\begin_layout Standard
+From this form, determine the minimum number of samples that must be generated
+ to reach some desired fraction 
+\begin_inset Formula $F$
+\end_inset
+
+ of the optimal efficiency, using the method of Lagrange multipliers.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+F & =1-\frac{1}{2}\sum_{k=1}^{K}\frac{A_{k}}{N_{k}}\\
+N & =\sum_{k=1}^{K}N_{k}-\lambda\left(1-F-\frac{1}{2}\sum_{k=1}^{K}\frac{A_{k}}{N_{k}}\right)
+\end{align*}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula 
+\begin{align*}
+0 & =\left.\partial_{N_{k^{\prime}}}N\right|_{N_{k}=N_{k}^{(0)}}=1-\frac{1}{2}\frac{A_{k}\lambda}{\left(N_{k^{\prime}}^{(0)}\right)^{2}}\\
+N_{k}^{(0)} & =\sqrt{\frac{A_{k}\lambda}{2}}
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+The number of samples requested from each cell is proportional to 
+\begin_inset Formula $\sqrt{A_{k}}$
+\end_inset
+
+.
+ Apply the Lagrange constraint to find the absolute values.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+N^{(0)} & =\frac{1}{2\left(1-F\right)}\left(\sum_{k=1}^{K}\sqrt{A_{k}}\right)^{2}\nonumber \\
+\frac{N_{k}^{(0)}}{N^{(0)}} & =\frac{\sqrt{A_{k}}}{\sum_{k}\sqrt{A_{k}}}\label{eq:number-tune-def}
+\end{align}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+The expression for 
+\begin_inset Formula $A_{k}$
+\end_inset
+
+ is simply found by combining equations 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:prime-estimator-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+ and 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:efficiency-tune-expectation-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{equation}
+A_{k}=\frac{1}{4}\left(\frac{p_{k}^{(0)}}{p^{(0)}}\right)\left(\frac{p^{(0)}-p_{k}^{(0)}}{p^{(0)}}\right)\left(\frac{\sigma_{R^{2}}^{2}}{\mu_{R^{2}}^{2}}\right)\label{eq:number-coeff-tune-def}
+\end{equation}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+Estimating the single-cell efficiency
+\end_layout
+
+\begin_layout Standard
+A good estimate of the single-cell efficiency (equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:efficiency-single-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+) is necessary for knowing when a cell has been sufficiently tuned.
+ In practice, it is easier to estimate the relative variance.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+\sigma_{\mu}^{2} & \equiv\frac{\sigma_{\rho}^{2}}{\mu_{\rho}^{2}}\nonumber \\
+ & =\frac{1-\varepsilon_{1}^{2}}{\varepsilon_{1}^{2}}=\frac{\mathrm{Var}\left[R\right]}{\mathrm{E}\left[R\right]^{2}}\label{eq:relative-variation-def}
+\end{align}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+To create an estimator for 
+\begin_inset Formula $\sigma_{\mu}^{2}$
+\end_inset
+
+, start with a naive estimator.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\left(S_{\mu}^{2}\right)^{\mathrm{naive}} & =\frac{S_{R}^{2}}{\overline{R}^{2}}\\
+ & =\frac{\sigma_{R}^{2}+\delta S_{R}^{2}}{\left(\mu_{R}+\delta\overline{R}\right)^{2}}\\
+ & \approx\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1+\frac{\delta S_{R}^{2}}{\sigma_{R}^{2}}\right)\left(1+\frac{\delta\overline{R}}{\mu_{R}}\right)^{-2}\\
+ & \approx\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1-2\frac{\delta\overline{R}}{\mu_{R}}+3\left(\frac{\delta\overline{R}}{\mu_{R}}\right)^{2}+\frac{\delta S_{R}^{2}}{\sigma_{R}^{2}}+O\left(\frac{1}{N^{3/2}}\right)\right)
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Then taking the expectation value lets a less-biased estimator be constructed.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+\mathrm{E}\left[\left(S_{\mu}^{2}\right)^{\mathrm{naive}}\right] & =\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1+\frac{3S_{R}^{2}}{N\mu_{R}^{2}}+O\left(\frac{1}{N^{3/2}}\right)\right)\nonumber \\
+S_{\mu}^{2} & =\frac{S_{R}^{2}}{\overline{R}^{2}}\left(1-\frac{3S_{R}^{2}}{N\overline{R}^{2}}\right)\label{eq:relative-variance-estimator-def}
+\end{align}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Cell division
+\end_layout
+
+\begin_layout Standard
+So far, we have described how to optimize a cell generator with pre-exisiting
+ cells to reach arbitrarily close to some optimal efficiency 
+\begin_inset Formula $\varepsilon^{(0)}<1$
+\end_inset
+
+.
+ What if this optimal efficiency is not good enough for some purpose? Then,
+ some of the existing cells must be broken into smaller cells that can better
+ approximate the underlying distribution 
+\begin_inset Formula $\rho$
+\end_inset
+
+.
+ It is always true that dividing an existing cell into any number of smaller
+ cells covering the same region will improve the optimal efficiency of the
+ cell generator.
+ However, certain cell divisions will yield larger improvements to efficiency
+ than others.
+\end_layout
+
+\begin_layout Subsection
+Choosing an optimal cell division site
+\end_layout
+
+\begin_layout Standard
+For modeling cell division, we will use cells that are 
+\begin_inset Formula $d$
+\end_inset
+
+-dimensional hyper-rectangles.
+ Suppose some parent cell with dimensions 
+\begin_inset Formula $\left\{ L_{1},L_{2},\ldots,L_{d}\right\} $
+\end_inset
+
+ undergoes division along the 
+\begin_inset Formula $x_{1}$
+\end_inset
+
+ axis, at a fraction 
+\begin_inset Formula $\lambda$
+\end_inset
+
+ of the total length 
+\begin_inset Formula $L_{1}$
+\end_inset
+
+.
+ The two daughter cells, labeled 
+\begin_inset Formula $A$
+\end_inset
+
+ and 
+\begin_inset Formula $B$
+\end_inset
+
+, will have volumes 
+\begin_inset Formula $V_{A}=\lambda V$
+\end_inset
+
+ and 
+\begin_inset Formula $V_{B}=\left(1-\lambda\right)V$
+\end_inset
+
+, and new prime values 
+\begin_inset Formula $p_{A}^{(0)}$
+\end_inset
+
+ and 
+\begin_inset Formula $p_{B}^{(0)}$
+\end_inset
+
+.
+ Choosing the ideal division fraction 
+\begin_inset Formula $\lambda$
+\end_inset
+
+ is equivalent to trying to minimize the sum of these prime values.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+p_{\mathrm{total}}^{(0)} & =p_{A}^{(0)}+p_{B}^{(0)}\\
+ & =\sqrt{V_{A}\int_{x_{1}=0}^{\lambda L_{1}}\mathrm{d}x\:\rho\left(x\right)^{2}}+\sqrt{V_{B}\int_{x_{1}=\lambda L_{1}}^{L_{1}}\mathrm{d}x\:\rho\left(x\right)^{2}}
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Of course, in practice the prime values can only be estimated.
+ To choose an optimal division site, there needs to be Monte-Carlo sampling
+ of the distribution 
+\begin_inset Formula $\rho$
+\end_inset
+
+ within the parent cell.
+\end_layout
+
+\begin_layout Standard
+Define the marginal variable 
+\begin_inset Formula $R\left(x_{1}\right)$
+\end_inset
+
+ as
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+R\left(x_{1}\right)=R\left(x_{1},X_{2},X_{3},\ldots,X_{d}\right)=\rho\left(x_{1},X_{2},X_{3},\ldots,X_{d}\right)
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+This is a random variable related to 
+\begin_inset Formula $R$
+\end_inset
+
+ by a fixed value of 
+\begin_inset Formula $X_{1}$
+\end_inset
+
+.
+ Its expectation values are also related to integrals over the distribution.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\mathrm{E}\left[R\left(x_{1}\right)\right] & =\frac{L_{1}}{V}\int\mathrm{d}x_{2}\:\mathrm{d}x_{3}\ldots\mathrm{d}x_{d}\:\rho\left(x\right)\\
+\mathrm{E}\left[R\left(x_{1}\right)^{2}\right] & =\frac{L_{1}}{V}\int\mathrm{d}x_{2}\:\mathrm{d}x_{3}\ldots\mathrm{d}x_{d}\:\rho\left(x\right)^{2}
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+This allows a simple estimator for 
+\begin_inset Formula $p_{\mathrm{total}}^{(0)}$
+\end_inset
+
+ to be constructed.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+P_{\mathrm{total}}\left(\lambda\right)=V\left[\lambda\sqrt{\int_{x_{1}=0}^{\lambda L_{1}}\mathrm{d}x_{1}\:\overline{R\left(x_{1}\right)^{2}}}+\left(1-\lambda\right)\sqrt{\int_{x_{1}=\lambda L_{1}}^{L_{1}}\mathrm{d}x_{1}\:\overline{R\left(x_{1}\right)^{2}}}\right]
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+This estimator is biased, but will work well enough for the purposes of
+ cell division.
+ The uncertainty 
+\begin_inset Formula $\delta P_{\mathrm{total}}$
+\end_inset
+
+ can also be easily constructed, and will be reduced with more samples taken.
+\end_layout
+
+\begin_layout Standard
+Then, the goal of cell division is simply to find the minimum value of 
+\begin_inset Formula $P_{\mathrm{total}}$
+\end_inset
+
+ as a function of 
+\begin_inset Formula $\lambda$
+\end_inset
+
+, taking into account the error 
+\begin_inset Formula $\delta P_{\mathrm{total}}$
+\end_inset
+
+.
+ If the minimum cannot be determined due to large error, then more samples
+ need to be taken until 
+\begin_inset Formula $\delta P_{\mathrm{total}}$
+\end_inset
+
+ is small enough.
+ The shape of 
+\begin_inset Formula $P_{\mathrm{total}}$
+\end_inset
+
+ as a function of 
+\begin_inset Formula $\lambda$
+\end_inset
+
+ might be quite complicated, with multiple minima and maxima, but in general
+ it is strictly bounded by total of the parent cell.
+ It is impossible for the optimal efficiency to get worse through cell division.
+\end_layout
+
+\begin_layout Standard
+One simple algorithm that can be used for finding the minimum is to use
+ a histogram of 
+\begin_inset Formula $P_{\mathrm{total}}$
+\end_inset
+
+ in bins of width 
+\begin_inset Formula $\Delta\lambda$
+\end_inset
+
+.
+ Then, a 
+\begin_inset Formula $\chi^{2}$
+\end_inset
+
+ test can be used to test against a constant line at the prime of the parent
+ cell.
+ Once the 
+\begin_inset Formula $\chi^{2}$
+\end_inset
+
+ test has been suitably violated, the bin with the smallest 
+\begin_inset Formula $P_{\mathrm{total}}$
+\end_inset
+
+ is selected.
+\end_layout
+
+\begin_layout Subsection
+Estimating gains from cell division
+\end_layout
+
+\begin_layout Standard
+Suppose that there is an optimal cell generator 
+\begin_inset Formula $G_{1}$
+\end_inset
+
+ made of a single cell, that is gradually divided into 
+\begin_inset Formula $K$
+\end_inset
+
+ cells to form an optimal cell generator 
+\begin_inset Formula $G_{K}$
+\end_inset
+
+.
+ The efficiencies of these cell generators come from 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:efficiency-combination-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\varepsilon_{G_{1}}^{(0)} & =\frac{V\mu_{\rho}}{V\sqrt{\sigma_{\rho}^{2}+\mu_{\rho}^{2}}}=\frac{V\mu_{\rho}}{p_{G_{1}}^{(0)}}\\
+\varepsilon_{G_{K}}^{(0)} & =\frac{V\mu_{\rho}}{\sum_{k=1}^{K}p_{k}^{(0)}}=\frac{V\mu_{\rho}}{p_{G_{K}}^{(0)}}
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Let's investigate how the efficiency 
+\begin_inset Formula $\varepsilon_{G_{K}}^{(0)}$
+\end_inset
+
+, and by extension the prime 
+\begin_inset Formula $p_{G_{K}}^{(0)}$
+\end_inset
+
+, varies as a function of 
+\begin_inset Formula $K$
+\end_inset
+
+.
+ There are many ways to divide the original cell generator into 
+\begin_inset Formula $K$
+\end_inset
+
+ cells, but suppose that a reasonable choice is made.
+ As 
+\begin_inset Formula $K\rightarrow\infty$
+\end_inset
+
+, the efficiency must approach its optimal value of 
+\begin_inset Formula $1$
+\end_inset
+
+, just as the prime approaches its optimal value of 
+\begin_inset Formula $V\mu_{\rho}$
+\end_inset
+
+.
+ Taking this in mind, consider the following model for 
+\begin_inset Formula $p_{G_{K}}^{(0)}$
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+p_{G_{K}}^{(0)}-V\mu_{\rho}=\left(p_{G_{1}}^{(0)}-V\mu_{\rho}\right)K^{-\alpha}
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+This model is motivated from simulations of 
+\begin_inset Formula $k$
+\end_inset
+
+-d trees on a linearly varying distribution 
+\begin_inset Formula $\rho$
+\end_inset
+
+.
+ Since at small enough scales, all well-behaved distributions will look
+ linear, this model can be expected to work after large enough 
+\begin_inset Formula $K$
+\end_inset
+
+ (corresponding to small enough scales) for any cell generator.
+ A typical value of 
+\begin_inset Formula $\alpha$
+\end_inset
+
+ is 
+\begin_inset Formula $1.9$
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Standard
+If we want to reach some desired efficiency 
+\begin_inset Formula $\varepsilon_{G_{K}}^{(0)}=\varepsilon_{\mathrm{target}}^{(0)}$
+\end_inset
+
+, then the number of cells that will be needed can now be easily estimated.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\varepsilon_{\mathrm{target}}^{(0)} & =\frac{V\mu_{\rho}}{\left(p_{G_{1}}^{(0)}-V\mu_{\rho}\right)K^{-\alpha}+V\mu_{\rho}}\\
+K & =\left[\left(\frac{\varepsilon_{\mathrm{target}}^{(0)}}{\varepsilon_{G_{1}}^{(0)}}\right)\left(\frac{1-\varepsilon_{G_{1}}^{(0)}}{1-\varepsilon_{\mathrm{target}}^{(0)}}\right)\right]^{1/\alpha}
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+However, this expression does not indicate where those divisions should
+ be placed.
+ To understand this, we will take a recursive view of the situation.
+ Consider the generator 
+\begin_inset Formula $G_{K}$
+\end_inset
+
+, and change it to one with 
+\begin_inset Formula $K+K^{\prime}$
+\end_inset
+
+ cells by dividing the existing cells into 
+\begin_inset Formula $K_{k}^{\prime}$
+\end_inset
+
+ smaller pieces.
+ Then, the overall prime can be written two ways.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+\left(p_{G_{1}}^{(0)}-V\mu_{\rho}\right)\left(K+K^{\prime}\right)^{-\alpha}=\sum_{k=1}^{K}\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)\left(1+K_{k}^{\prime}\right)^{-\alpha}
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Let's start with the right-hand-side of the equation.
+ If we want to reach a desired prime 
+\begin_inset Formula $p_{\mathrm{target}}^{(0)}$
+\end_inset
+
+ while minimizing 
+\begin_inset Formula $K^{\prime}$
+\end_inset
+
+, we get:
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\[
+0=\left.\partial_{K_{k}^{\prime}}K^{\prime}\right|_{K_{k}^{\prime}=K_{k}^{\prime\mathrm{opt}}}=1-\lambda\alpha\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)\left(1+K_{k}^{\prime}\right)^{-\alpha-1}
+\]
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+1 & =\lambda\alpha\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)\left(1+K_{k}^{\prime}\right)^{-\alpha-1}\\
+\left(1+K_{k}^{\prime}\right)^{\alpha+1} & =\lambda\alpha\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+To find 
+\begin_inset Formula $\lambda\alpha$
+\end_inset
+
+, use the contraint, which results in an 
+\begin_inset Formula $\left(\frac{1}{\alpha+1}\right)$
+\end_inset
+
+-norm.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\left(\lambda\alpha\right)^{\alpha} & =\left(\frac{1}{p_{\mathrm{target}}^{(0)}}\sum_{k=1}^{K}\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)^{\frac{1}{\alpha+1}}\right)^{\alpha+1}\\
+\left(1+K_{k}^{\prime}\right)^{\alpha\left(\alpha+1\right)} & =\left(\sum_{k^{\prime}=1}^{K}\left(\frac{p_{k^{\prime}}^{(0)}-V_{k^{\prime}}\mu_{\rho,k^{\prime}}}{p_{\mathrm{target}}^{(0)}}\right)^{\frac{1}{\alpha+1}}\right)^{\alpha+1}\left(\frac{p_{k}^{(0)}-V_{k}\mu_{\rho,k}}{p_{\mathrm{target}}^{(0)}}\right)^{\alpha}
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+The first factor is a global property of the cell generator, while the second
+ factor is cell-specific.
+ Note that 
+\begin_inset Formula $p_{\mathrm{target}}^{(0)}$
+\end_inset
+
+ is the target prime for the whole cell generator, so for cells with 
+\begin_inset Formula $p_{k}^{(0)}\ll V\mu_{\rho}$
+\end_inset
+
+, not many divisions will be requested.
+\end_layout
+
+\begin_layout Section
+Algorithm for producing an efficient 
+\begin_inset Formula $k$
+\end_inset
+
+-d cell generator
+\end_layout
+
+\begin_layout Standard
+In this section, we will combine the discussion of the previous sections
+ to describe a method for producing an efficient 
+\begin_inset Formula $k$
+\end_inset
+
+-d cell generator for an arbitrary distribution 
+\begin_inset Formula $\rho$
+\end_inset
+
+.
+ Before beginning, it should be noted that the process of tuning the primes
+ of a cell generator is inherently global.
+ A single cell does not have an optimal prime value; only within the context
+ of an aggregate of cells does it have an optimal prime value.
+ The general approach is to first create the cells themselves through variance
+ reduction of individual cells.
+ However, all of the cells are created, it is necessary to tune the prime
+ values globally.
+ If tuning is not done, the earlier process of variance reduction will have
+ gone to waste.
+\end_layout
+
+\begin_layout Standard
+The basic approach we describe here uses a 
+\begin_inset Formula $k$
+\end_inset
+
+-d tree as described earlier.
+ First, the 
+\begin_inset Formula $k$
+\end_inset
+
+-d tree is constructed with each cell reaching a target optimal efficiency
+ of 
+\begin_inset Formula $\varepsilon^{(0)}=\varepsilon^{\mathrm{target}}$
+\end_inset
+
+.
+ This process is just standard variance reduction.
+ Then, the 
+\begin_inset Formula $k$
+\end_inset
+
+-d tree is tuned to reach as close to the optimal efficiency as possible.
+ Once the desired performance has been reached, the 
+\begin_inset Formula $k$
+\end_inset
+
+-d cell generator is ready for use.
+\end_layout
+
+\end_body
+\end_document
