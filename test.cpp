@@ -68,9 +68,13 @@ int main() {
 
 Real func_test(bubble::Point<DIM, Real> x) {
 	Real result = 1;
+	Real r2 = 0;
 	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
-		result *= std::sin(PI * x[dim]);
+		r2 += x[dim] * x[dim];
+		//result *= std::sin(PI * x[dim]);
+		//result += x[dim];
 	}
+	result = std::exp(-10 * std::sqrt(r2)) / std::sqrt(r2);
 	return result;
 }
 

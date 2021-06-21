@@ -226,11 +226,6 @@ public:
 			Branch branch,
 			BranchData branch_data,
 			const LeafData (&leaf_data)[NUM_CHILDREN]) {
-		// TODO: Get rid of check?
-		if (_cells[cell].type() != CellType::LEAF) {
-			throw std::runtime_error("Can only split a leaf cell.");
-		}
-
 		// Append the new cells to the tree.
 		_cells.reserve(_cells.size() + NUM_CHILDREN);
 		Cell parent(branch_data, branch);
@@ -248,9 +243,11 @@ public:
 		cells_new.reserve(_cells.size());
 		for (Cell const& cell : _cells) {
 			if (cell.type() == CellType::BRANCH) {
-				cells_new.push_back(CellOther(fb(cell.branch_data), cell.branch));
+				cells_new.push_back(
+					CellOther(fb(cell.branch_data), cell.branch));
 			} else {
-				cells_new.push_back(CellOther(fl(cell.leaf_data)));
+				cells_new.push_back(
+					CellOther(fl(cell.leaf_data)));
 			}
 		}
 		Tree<B, DBP, DLP> result(std::move(cells_new));
@@ -394,14 +391,20 @@ struct Stats final {
 		}
 		return prime;
 	}
-	FI est_vol(FI prime_tot) const {
+	FI est_explore_vol(FI alpha) const {
+		FI prime = est_prime();
+		FI mean = est_mean();
+		FI explore_vol = std::pow(prime - mean, 1 / (alpha + 1));
+		return explore_vol;
+	}
+	FI est_tune_vol(FI prime_tot) const {
 		FI prime = est_prime();
 		FI mom2 = mom2_total / count;
 		FI var2 = (mom4_total - sq(mom2) * count) / (count - 1);
-		FI vol = 0.5 * std::sqrt(
+		FI tune_vol = 0.5 * std::sqrt(
 			(prime / prime_tot) * ((prime_tot - prime) / prime_tot)
 			* (var2 / sq(mom2)));
-		return vol;
+		return tune_vol;
 	}
 };
 template<typename FI>
@@ -445,15 +448,20 @@ class CellBuilder final {
 		std::is_floating_point<FR>::value,
 		"Function must return floating point type.");
 
+	// The reason that we don't store a `Stats` and instead keep all of these
+	// variables separate is because the `prime` and `volatility` measures are
+	// not linear. So, the stats for different leafs can't just be added to get
+	// the stats for a branch.
 	struct BranchData final {
-		// The reason that we don't store a `Stats` and instead keep all of
-		// these variables separate is because the `prime` and `volatility`
-		// measures are not linear. So, the stats for different leafs can't just
-		// be added to get the stats for a branch.
+		// Estimate of mean within all children.
 		FI mean;
+		// Total prime of all children.
 		FI prime;
-		FI vol;
-		BranchData() : mean(0), prime(0), vol(0) { }
+		// Total exploration volatility of all children.
+		FI explore_vol;
+		// Total tuning volatility of all children.
+		FI tune_vol;
+		BranchData() : mean(0), prime(0), explore_vol(0), tune_vol(0) { }
 	};
 	struct LeafData final {
 		Stats<FI> stats;
@@ -474,38 +482,45 @@ public:
 	// process.
 
 	// The target relative variance that must be reached in all cells.
-	FI target_rel_var = 0.001;
+	FI target_rel_var = 0.01;
 	// The precision (in standard deviations) to which the relative variance
 	// must be reached.
-	FI target_rel_var_sigma = 2;
+	FI target_rel_var_sigma = 1.5;
 	// The minimum cell volume (with volume equal to length^d) at which
 	// exploration terminates.
-	FI min_cell_length = 0.1;
-	// The minimum cell quality needed before exploration can ever terminate in
-	// a cell. Generally, this should be between 1 and 10.
-	FI min_cell_quality = 1;
-	// The maximum cell quality at which exploration terminates. A larger value
-	// pushes for a more uniform efficiency over the entire generator including
-	// in low-prime cells, where a smaller value will cause exploration to focus
-	// on the high-prime cells.
-	FI max_cell_quality = 1000.;
+	FI min_cell_length = 0.01;
+	// The exponent used when computing exploration volatility. This has been
+	// empirically determined to be between 0.5 and 2.0 for k-d trees on smooth
+	// functions.
+	FI scale_exp = 1.0;
+	// The maximum cell volatility needed before exploration can ever terminate
+	// in a cell. Generally, this should be between 0.1 and 1 (usually closely
+	// to 1).
+	FI max_cell_explore_vol = 1;
+	// The minimum cell volatility at which exploration terminates. A larger
+	// value pushes for a more uniform efficiency over the entire generator
+	// including in low-prime cells, where a smaller value will cause
+	// exploration to focus on the high-prime cells.
+	FI min_cell_explore_vol = 1;
 	// Chi-squared needed for a cell division to be triggered.
-	FI chi_squared_for_divide = 8.;
+	FI chi_squared_for_divide = 4;
 	// Number of bins in edge histograms.
 	std::size_t hist_num_bins = 100;
 	// Minimum number of samples needed per bin before starting cell division.
 	std::size_t hist_num_per_bin = 3;
 	// Minimum and maximum number of samples to be taken in a single cell during
 	// the exploration phase.
-	std::size_t min_cell_explore_count = 256;
-	std::size_t max_cell_explore_count = 524288;
+	std::size_t min_cell_explore_samples = 256;
+	std::size_t max_cell_explore_samples = 524288;
+	// Maximum number of cells to create during exploration.
+	std::size_t max_explore_cells = 32768;
 	// The accuracy to which to tune within.
 	FI tune_rel_accuracy = 0.01;
 	// How many stages to tune. More stages gives slightly better tuning
 	// performance.
 	std::size_t tune_num_stages = 10;
 	// Maximum number of samples to be taken total in the tuning phase.
-	std::size_t max_cell_tune_count = 16777216;
+	std::size_t max_tune_samples = 16777216;
 
 private:
 	// Gets a seed from the left generator.
@@ -553,27 +568,52 @@ private:
 			return _tree.leaf_data(parent).stats.est_prime();
 		}
 	}
-	// Fills in volatility for a cell and all of its descendents.
-	FI fill_vols(CellHandle cell, FI prime_total) {
+	// Fills in exploration volatilities for a cell and all of its descendents.
+	FI fill_explore_vols(CellHandle cell) {
 		CellHandle parent = cell;
 		if (_tree.type(parent) == CellType::BRANCH) {
-			_tree.branch_data(parent).vol = 0;
+			_tree.branch_data(parent).explore_vol = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				CellHandle child = _tree.child(parent, child_idx);
-				_tree.branch_data(parent).vol += fill_vols(child, prime_total);
+				_tree.branch_data(parent).explore_vol += fill_explore_vols(child);
 			}
-			return _tree.branch_data(parent).vol;
+			return _tree.branch_data(parent).explore_vol;
 		} else {
-			return _tree.leaf_data(parent).stats.est_vol(prime_total);
+			return _tree.leaf_data(parent).stats.est_explore_vol(scale_exp);
+		}
+	}
+	// Fills in tuning volatilities for a cell and all of its descendents.
+	FI fill_tune_vols(CellHandle cell, FI prime_total) {
+		CellHandle parent = cell;
+		if (_tree.type(parent) == CellType::BRANCH) {
+			_tree.branch_data(parent).tune_vol = 0;
+			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+				CellHandle child = _tree.child(parent, child_idx);
+				_tree.branch_data(parent).tune_vol += fill_tune_vols(child, prime_total);
+			}
+			return _tree.branch_data(parent).tune_vol;
+		} else {
+			return _tree.leaf_data(parent).stats.est_tune_vol(prime_total);
 		}
 	}
 
-	// Determines the quality of the distribution within a cell, and if
-	// necessary, divides it into subcells. Returns the number of underexplored
-	// cells in which exploration was terminated early.
-	std::size_t explore_cell(
+	// Determines the efficiency of the cell generator within a specific cell.
+	// the efficiency is good enough, leaves the cell alone, otherwise, adds new
+	// children to the cell to improve its efficiency.
+	void explore_cell(
+			// The cell to explore.
 			CellHandle cell,
-			Point<D, R> offset, Point<D, R> extent) {
+			// Dimensions of the cell.
+			Point<D, R> offset, Point<D, R> extent,
+			// Estimate of total integral of distribution.
+			FI mean_total,
+			// Estimate of exploration volatility of tree.
+			FI vol_total,
+			// Maximum number of layers of new cells to add on to the tree.
+			std::size_t depth) {
+		if (depth == 0) {
+			return;
+		}
 		CellType type;
 		#pragma omp critical (bubble_tree)
 		{
@@ -581,7 +621,6 @@ private:
 		}
 		if (type == CellType::BRANCH) {
 			// If the cell has children, then recursively explore them.
-			std::size_t underexplored = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				#pragma omp task
 				{
@@ -597,19 +636,19 @@ private:
 					Point<D, R> offset_child;
 					Point<D, R> extent_child;
 					for (Dim dim = 0; dim < D; ++dim) {
-						offset_child[dim] = offset[dim]
-							+ extent[dim] * offset_local[dim];
+						offset_child[dim] = offset[dim];
+						offset_child[dim] += extent[dim] * offset_local[dim];
 						extent_child[dim] = extent[dim] * extent_local[dim];
 					}
-					std::size_t underexplored_child = explore_cell(
+					explore_cell(
 						child,
-						offset_child, extent_child);
-					#pragma omp atomic
-					underexplored += underexplored_child;
+						offset_child, extent_child,
+						mean_total, vol_total,
+						depth);
 				}
 			}
 			#pragma omp taskwait
-			return underexplored;
+			return;
 		} else {
 			R volume = 1;
 			for (Dim dim = 0; dim < D; ++dim) {
@@ -618,17 +657,9 @@ private:
 			// Statistics measures.
 			Stats<FI> stats;
 			Stats<FI> stats_init;
-			R mean;
-			bool is_root;
 			#pragma omp critical (bubble_tree)
 			{
 				stats_init = _tree.leaf_data(cell).stats;
-				if (_tree.type(_tree.root()) == CellType::BRANCH) {
-					mean = _tree.branch_data(_tree.root()).mean;
-				} else {
-					mean = _tree.leaf_data(_tree.root()).stats.est_mean();
-				}
-				is_root = (cell == _tree.root());
 			}
 			// Histograms, one for each axis of the hypercube.
 			std::vector<Stats<FI> > hist_stats[D];
@@ -647,9 +678,169 @@ private:
 			RndR rnd(seed_seq);
 
 			// The next number at which termination conditions will be checked.
-			std::size_t next_count = min_cell_explore_count;
+			std::size_t next_samples = min_cell_explore_samples;
 			while (true) {
-				for (std::size_t sample = stats.count; sample < next_count; ++sample) {
+				// Check termination conditions.
+				Stats<FI> stats_total = stats + stats_init;
+				if (stats_total.count >= min_cell_explore_samples) {
+					FI prime_err;
+					FI prime = stats_total.est_prime(&prime_err);
+					FI rel_var_err;
+					FI rel_var = stats_total.est_rel_var(&rel_var_err);
+
+					// Termination condition 1. Efficiency meets criteria.
+					// First check the cell division volatility. If the ratio is
+					// greater than one, then check that the relative variance
+					// has met the target accounting for uncertainty (and if so,
+					// then terminate).
+					FI cell_vol =
+						std::pow(
+							vol_total / (0.5 * target_rel_var * mean_total),
+							1 / scale_exp)
+						* stats_total.est_explore_vol(scale_exp);
+					// Termination will only be considered if the cell
+					// volatility hits the threshold value. This ensures that no
+					// matter what other termination conditions are considered,
+					// the final cell generator will have good efficiency.
+					if (cell_vol < max_cell_explore_vol) {
+						FI rel_var_max =
+							rel_var + target_rel_var_sigma * rel_var_err;
+						// Three possibilities for terminating:
+						// * Relative variance is smaller than target.
+						// * Cell is unimportant either because:
+						//   * Cell is low volume.
+						//   * Cell has low volatility.
+						bool var_cond = (rel_var_max <= target_rel_var);
+						bool volume_cond = (volume <= std::pow(min_cell_length, D));
+						bool vol_cond = (cell_vol <= min_cell_explore_vol);
+						if (var_cond || volume_cond || vol_cond) {
+							#pragma omp critical (bubble_tree)
+							{
+								_tree.leaf_data(cell).stats += stats;
+							}
+							return;
+						}
+					}
+
+					// Termination condition 2. Cell division.
+					// For cell division to occur, the edge histograms must be
+					// different enough (by chi-squared test) from constant.
+					// Then, the division site that minimizes the new sum of
+					// primes is chosen.
+					if (stats.count >= hist_num_per_bin * hist_num_bins) {
+						FI chi_squared = 0;
+						FI prime_min = std::numeric_limits<FI>::max();
+						Dim dim_min = 0;
+						std::size_t bin_min = hist_num_bins / 2;
+						Stats<FI> stats_lower_min;
+						Stats<FI> stats_upper_min;
+						for (Dim dim = 0; dim < D; ++dim) {
+							// Integrated statistics below and above the
+							// proposed division site.
+							std::vector<Stats<FI> > hist_stats_lower(hist_num_bins + 1);
+							std::vector<Stats<FI> > hist_stats_upper(hist_num_bins + 1);
+							for (std::size_t bin = 1; bin < hist_num_bins + 1; ++bin) {
+								std::size_t rbin = hist_num_bins - bin;
+								hist_stats_lower[bin] = hist_stats_lower[bin - 1]
+									+ hist_stats[dim][bin - 1];
+								hist_stats_upper[rbin] = hist_stats_upper[rbin + 1]
+									+ hist_stats[dim][rbin];
+							}
+							// Test division at each bin boundary. Note that the
+							// last bin is left off: such a data point would
+							// have `count_upper == 0`.
+							for (std::size_t bin = 1; bin < hist_num_bins; ++bin) {
+								Stats<FI> const& stats_lower = hist_stats_lower[bin];
+								Stats<FI> const& stats_upper = hist_stats_upper[bin];
+								// If a bin doesn't have the counts needed to
+								// compute a standard deviation, just drop it.
+								if (stats_lower.count <= 3 || stats_upper.count <= 3) {
+									continue;
+								}
+								// Estimate the total prime resulting from
+								// splitting the cell at this bin boundary. Need
+								// to scale by the volume fractions, to account
+								// for volume being included in the statistics
+								// measures.
+								R lambda_1 = R(bin + 1)
+									/ hist_num_bins;
+								R lambda_2 = R(hist_num_bins - bin - 1)
+									/ hist_num_bins;
+								FI prime_var_lower;
+								FI prime_lower = (lambda_1 * stats_lower)
+									.est_prime(&prime_var_lower);
+								FI prime_var_upper;
+								FI prime_upper = (lambda_2 * stats_upper)
+									.est_prime(&prime_var_upper);
+								FI prime_new = prime_lower + prime_upper;
+								// Because the two prime estimates are
+								// independent, the variances can be summed.
+								FI prime_var_new = prime_var_lower + prime_var_upper;
+								// Chi squared test against the maximum possible
+								// value for sum of primes, which is the current
+								// prime of the cell.
+								// TODO: The `prime_var_new` and `prime_err` are
+								// not independent, and so technically shouldn't
+								// be added. Not sure if there's enough
+								// dependence for it to matter though.
+								// TODO: Using chi-squared test here even though
+								// prime is not normally distributed. At best it
+								// is a square root of a normal variable (from
+								// central limit theorem, which doesn't
+								// necessary work that well for all
+								// distributions). It's not clear what a better
+								// test would be though.
+								chi_squared += sq(prime_new - prime)
+									/ (sq(prime_var_new) + sq(prime_err));
+								// Update minimum.
+								if (prime_new < prime_min) {
+									prime_min = prime_new;
+									dim_min = dim;
+									bin_min = bin;
+									stats_lower_min = stats_lower;
+									stats_upper_min = stats_upper;
+								}
+							}
+						}
+						// Average the chi-squared over every degree of freedom.
+						chi_squared /= D * hist_num_bins;
+						// If the chi-squared is large enough, or if just too
+						// many samples have been requested, then make a
+						// division.
+						if (chi_squared > chi_squared_for_divide
+								|| stats.count >= max_cell_explore_samples) {
+							R lambda_1 = R(bin_min + 1)
+								/ hist_num_bins;
+							R lambda_2 = R(hist_num_bins - bin_min - 1)
+								/ hist_num_bins;
+							LeafData leaf_data[2] = {
+								{ lambda_1 * stats_lower_min },
+								{ lambda_2 * stats_upper_min },
+							};
+							#pragma omp critical (bubble_tree)
+							{
+								_tree.split(
+									cell,
+									typename TreeType::Branch(dim_min, lambda_1),
+									BranchData(),
+									leaf_data);
+							}
+							// Recursively calling will cause the new children
+							// to be explored. Reduce depth by 1 due to the
+							// split.
+							explore_cell(
+								cell,
+								offset, extent,
+								mean_total, vol_total,
+								depth - 1);
+							return;
+						}
+					}
+				}
+
+				// If non of the termination conditions match, then produce more
+				// samples.
+				for (std::size_t sample = stats.count; sample < next_samples; ++sample) {
 					// Generate a point randomly within the cell and evaluate
 					// the function. First choose a histogram bin to generate
 					// in, then produce the point itself.
@@ -679,210 +870,52 @@ private:
 						hist_stats[dim][hist_idx[dim]].update(f);
 					}
 				}
-
-				// Check termination conditions. The termination conditions are
-				// expensive, so scale by two so that they only get checked
-				// every order of magnitude or so.
-				next_count *= 2;
-
-				// Get relative variance and prime.
-				Stats<FI> stats_total = stats + stats_init;
-				FI prime_err;
-				FI prime = stats_total.est_prime(&prime_err);
-				FI rel_var_err;
-				FI rel_var = stats_total.est_rel_var(&rel_var_err);
-
-				// Termination condition 1. Efficiency meets criteria.
-				// First check the cell division quality ratio. If the ratio is
-				// greater than one, then check that the relative variance has
-				// met the target accounting for uncertainty (and if so, then
-				// terminate).
-
-				// This is an approximation for cell quality that works well for
-				// relative variances much less than one.
-				FI var_quality = target_rel_var / rel_var;
-				// This ratio is calculated in this weird way because if we are
-				// exploring the root cell, then the `mean` variable doesn't
-				// have a good initial value yet.
-				FI prime_quality = is_root ?
-					stats_total.est_mean() / prime : mean / prime;
-				// TODO: Fix the cell quality measure. Right now, the cell
-				// quality is based off of a very bad model that breaks down
-				// especially badly when there are many small cells.
-				FI cell_quality = 0.5 * var_quality * prime_quality;
-				// Termination will only be considered if the cell quality hits
-				// the threshold value. This ensures that no matter what other
-				// termination conditions are considered, the final cell
-				// generator will have good efficiency.
-				if (cell_quality > min_cell_quality) {
-					FI rel_var_max = rel_var + target_rel_var_sigma * rel_var_err;
-					// Three possibilities for terminating:
-					// * Relative variance is smaller than target.
-					// * Cell is unimportant either because:
-					//   * Cell is low volume.
-					//   * Cell has low prime.
-					bool var_term = (rel_var_max <= target_rel_var);
-					bool volume_term = (volume <= std::pow(min_cell_length, D));
-					bool quality_term = (cell_quality >= max_cell_quality);
-					if (var_term || volume_term || quality_term) {
-						#pragma omp critical (bubble_tree)
-						{
-							_tree.leaf_data(cell).stats += stats;
-						}
-						return 0;
-					}
-				}
-
-				// Termination condition 2. Cell division.
-				// For cell division to occur, the edge histograms must be
-				// different enough (by chi-squared test) from constant. Then,
-				// the division site that minimizes the new sum of primes is
-				// chosen.
-				if (stats.count >= hist_num_per_bin * hist_num_bins) {
-					FI chi_squared = 0;
-					FI prime_min = prime;
-					Dim dim_min = 0;
-					std::size_t bin_min = hist_num_bins / 2;
-					Stats<FI> stats_lower_min;
-					Stats<FI> stats_upper_min;
-					for (Dim dim = 0; dim < D; ++dim) {
-						// Integrated statistics below and above the proposed
-						// division site.
-						Stats<FI> stats_lower = Stats<FI>();
-						Stats<FI> stats_upper = stats;
-						// Test division at each bin boundary. Note that the
-						// last bin is left off: such a data point would have
-						// `count_upper == 0`, which is difficult to deal with.
-						for (std::size_t bin = 0; bin < hist_num_bins - 1; ++bin) {
-							// Update the integrated statistics.
-							stats_lower += hist_stats[dim][bin];
-							stats_upper -= hist_stats[dim][bin];
-							// If a bin doesn't have the counts needed to
-							// compute a standard deviation, just drop it.
-							if (stats_lower.count <= 3 || stats_upper.count <= 3) {
-								continue;
-							}
-							// Estimate the total prime resulting from splitting
-							// the cell at this bin boundary. Need to scale by
-							// the volume fractions, to account for volume being
-							// included in the statistics measures.
-							R lambda_1 = R(bin + 1)
-								/ hist_num_bins;
-							R lambda_2 = R(hist_num_bins - bin - 1)
-								/ hist_num_bins;
-							FI prime_var_lower;
-							FI prime_lower = (lambda_1 * stats_lower).est_prime(
-								&prime_var_lower);
-							FI prime_var_upper;
-							FI prime_upper = (lambda_2 * stats_upper).est_prime(
-								&prime_var_upper);
-							FI prime_new = prime_lower + prime_upper;
-							// Because the two prime estimates are independent,
-							// the variances can be summed.
-							FI prime_var_new = prime_var_lower + prime_var_upper;
-							// Chi squared test against the maximum possible
-							// value for sum of primes, which is the current
-							// prime of the cell.
-							// TODO: The `prime_var_new` and `prime_err` are not
-							// independent, and so technically shouldn't be
-							// added. Not sure if there's enough dependence for
-							// it to matter though.
-							// TODO: Using chi-squared test here even though
-							// prime is not normally distributed. At best it is
-							// a square root of a normal variable (from central
-							// limit theorem, which doesn't necessary work that
-							// well for all distributions). It's not clear what
-							// a better test would be though.
-							chi_squared += sq(prime_new - prime)
-								/ (sq(prime_var_new) + sq(prime_err));
-							// Update minimum.
-							if (prime_new < prime_min && prime_new < prime) {
-								prime_min = prime_new;
-								dim_min = dim;
-								bin_min = bin;
-								stats_lower_min = stats_lower;
-								stats_upper_min = stats_upper;
-							}
-						}
-					}
-					// Average the chi-squared over every degree of freedom.
-					chi_squared /= D * hist_num_bins;
-					if (chi_squared > chi_squared_for_divide) {
-						R lambda_1 = R(bin_min + 1)
-							/ hist_num_bins;
-						R lambda_2 = R(hist_num_bins - bin_min - 1)
-							/ hist_num_bins;
-						LeafData leaf_data[2] = {
-							{ lambda_1 * stats_lower_min },
-							{ lambda_2 * stats_upper_min },
-						};
-						#pragma omp critical (bubble_tree)
-						{
-							_tree.split(
-								cell,
-								typename TreeType::Branch(dim_min, lambda_1),
-								BranchData(),
-								leaf_data);
-							// Every split, re-calculate the means.
-							fill_means(_tree.root());
-						}
-						// Recursively calling will cause the new children
-						// to be explored.
-						return explore_cell(cell, offset, extent);
-					}
-				}
-
-				// Termination condition 3. Undersampled.
-				// If too much time has been spent sampling from this cell and
-				// a good division site has not been found, then just give up.
-				// No more exploration will be done in this cell.
-				if (stats.count >= max_cell_explore_count) {
-					#pragma omp critical (bubble_tree)
-					{
-						_tree.leaf_data(cell).stats += stats;
-					}
-					return 1;
-				}
+				// Double how many samples we produce each round.
+				next_samples *= 2;
 			}
 		}
 	}
 
-	// Generates a number of points in a cell. The points are distributed among
-	// the cell's children according to the "volatility" of the cell, which can
-	// be estimated using `Stats::est_vol`.
+	// Improves the estimate of the prime of a given cell.
 	void tune_cell(
+			// The cell to tune.
 			CellHandle cell,
+			// Dimensions of the cell.
 			Point<D, R> offset, Point<D, R> extent,
+			// Total prime of the entire cell generator.
 			FI prime_total,
-			std::size_t count) {
+			// Number of samples to use for estimating the prime.
+			std::size_t samples) {
 		if (_tree.type(cell) == CellType::BRANCH) {
-			// For a branch, estimate the volatility of each child. The counts
+			// For a branch, estimate the volatility of each child. The samples
 			// will be divided up according to that.
 			FI vols[TreeType::NUM_CHILDREN];
 			FI vol_total = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				CellHandle child = _tree.child(cell, child_idx);
 				if (_tree.type(child) == CellType::BRANCH) {
-					vols[child_idx] = _tree.branch_data(child).vol;
+					vols[child_idx] = _tree.branch_data(child).tune_vol;
 				} else {
-					vols[child_idx] = _tree.leaf_data(child).stats.est_vol(prime_total);
+					vols[child_idx] = _tree.leaf_data(child).stats
+						.est_tune_vol(prime_total);
 				}
 				vol_total += vols[child_idx];
 			}
-			std::size_t counts_child[TreeType::NUM_CHILDREN];
-			std::size_t count_total = 0;
+			std::size_t samples_child[TreeType::NUM_CHILDREN];
+			std::size_t samples_total = 0;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				FI vol_frac = vols[child_idx] / vol_total;
-				counts_child[child_idx] = std::size_t(vol_frac * count);
-				count_total += counts_child[child_idx];
+				samples_child[child_idx] = static_cast<std::size_t>(
+					vol_frac * samples);
+				samples_total += samples_child[child_idx];
 			}
-			while (count_total < count) {
-				counts_child[count_total % TreeType::NUM_CHILDREN] += 1;
-				count_total += 1;
+			while (samples_total < samples) {
+				samples_child[samples_total % TreeType::NUM_CHILDREN] += 1;
+				samples_total += 1;
 			}
-			while (count_total > count) {
-				counts_child[count_total % TreeType::NUM_CHILDREN] -= 1;
-				count_total -= 1;
+			while (samples_total > samples) {
+				samples_child[samples_total % TreeType::NUM_CHILDREN] -= 1;
+				samples_total -= 1;
 			}
 
 			// Sample children according to volatility.
@@ -898,15 +931,15 @@ private:
 					Point<D, R> offset_child;
 					Point<D, R> extent_child;
 					for (Dim dim = 0; dim < D; ++dim) {
-						offset_child[dim] = offset[dim]
-							+ extent[dim] * offset_local[dim];
+						offset_child[dim] = offset[dim];
+						offset_child[dim] += extent[dim] * offset_local[dim];
 						extent_child[dim] = extent[dim] * extent_local[dim];
 					}
 					tune_cell(
 						child,
 						offset_child, extent_child,
 						prime_total,
-						counts_child[child_idx]);
+						samples_child[child_idx]);
 				}
 			}
 			#pragma omp taskwait
@@ -929,7 +962,7 @@ private:
 			std::seed_seq seed_seq(seed.begin(), seed.end());
 			RndR rnd(seed_seq);
 
-			for (std::size_t sample = 0; sample < count; ++sample) {
+			for (std::size_t sample = 0; sample < samples; ++sample) {
 				Point<D, R> point;
 				for (Dim dim = 0; dim < D; ++dim) {
 					R lower = offset[dim];
@@ -953,62 +986,90 @@ public:
 		_rnd_left.seed(seed_seq);
 	}
 
+	// Explores the distribution to create a well-balanced cell generator that
+	// can reach the desired performance. If unable to create a well-balanced
+	// cell generator, returns estimated number of cells that the exploration
+	// process fell short by.
 	std::size_t explore() {
 		Point<D, R> offset;
 		Point<D, R> extent;
 		offset.fill(0);
 		extent.fill(1);
 		CellHandle root = _tree.root();
-		std::size_t underexplored_count;
-		#pragma omp parallel
-		#pragma omp single
-		{
-			underexplored_count = explore_cell(root, offset, extent);
-		}
-		fill_means(root);
+		// TODO: Adjust `scale_exp` to fit the distribution as exploration
+		// proceeds.
+		std::size_t cells;
+		do {
+			cells = _tree.size();
+			FI mean_total = fill_means(root);
+			FI vol_total = fill_explore_vols(root);
+			#pragma omp parallel
+			#pragma omp single
+			{
+				explore_cell(
+					root,
+					offset, extent,
+					mean_total, vol_total,
+					1);
+			}
+			FI prime_total = fill_primes(root);
+		} while (cells != _tree.size() && _tree.size() < max_explore_cells);
+		FI mean_total = fill_means(root);
 		FI prime_total = fill_primes(root);
-		fill_vols(root, prime_total);
-		return underexplored_count;
+		FI vol_total = fill_explore_vols(root);
+		fill_tune_vols(root, prime_total);
+		// Calculate ideal number of cells, and see if we surpassed that number.
+		FI ideal_cells = static_cast<std::size_t>(
+			std::pow(vol_total, scale_exp + 1)
+			/ (0.5 * target_rel_var * mean_total));
+		if (ideal_cells > _tree.size()) {
+			return ideal_cells - _tree.size();
+		} else {
+			return 0;
+		}
 	}
 
 	// Tunes the cell generator to within some fraction of the ideal efficiency.
-	// Returns the number of events "undertuned" by (events requested that went
-	// beyond the upper limit).
+	// If unable to reach the desired efficiency, returns the estimated number
+	// of samples that the tuning process fell short by.
 	std::size_t tune() {
 		Point<D, R> offset;
 		Point<D, R> extent;
 		offset.fill(0);
 		extent.fill(1);
 		CellHandle root = _tree.root();
-		std::size_t undertuned_count = 0;
+		std::size_t undertuned_samples = 0;
 		// The tuning process is made somewhat complicated by the staged
 		// process. Since the accuracy of the volatilities might not be good if
 		// the cell generator is not well tuned, the tuning is done in stages
 		// with the volatilities recalculated between each stage.
 		for (std::size_t stage = 0; stage < tune_num_stages; ++stage) {
-			// Find total primes and volatilities.
 			FI prime_total = fill_primes(root);
-			FI vol_total = fill_vols(root, prime_total);
+			FI vol_total = fill_tune_vols(root, prime_total);
 			// Find the number of samples needed to reach the desired accuracy.
 			FI tune_accuracy = target_rel_var * tune_rel_accuracy;
-			std::size_t count =
-				std::size_t(sq(vol_total) / tune_accuracy);
-			count = std::size_t(R(stage + 1) / tune_num_stages * count);
-			if (count > max_cell_tune_count) {
-				undertuned_count = count - max_cell_tune_count;
-				count = max_cell_tune_count;
+			std::size_t samples = static_cast<std::size_t>(
+				sq(vol_total) / tune_accuracy);
+			samples = static_cast<std::size_t>(
+				R(stage + 1) / tune_num_stages * samples);
+			std::size_t max_samples = static_cast<std::size_t>(
+				R(stage + 1) / tune_num_stages * max_tune_samples);
+			if (samples > max_samples) {
+				undertuned_samples = samples - max_tune_samples;
+				samples = max_tune_samples;
 			}
 			// Sample from the cell generator.
 			#pragma omp parallel
 			#pragma omp single
 			{
-				tune_cell(root, offset, extent, prime_total, count);
+				tune_cell(root, offset, extent, prime_total, samples);
 			}
 		}
 		fill_means(root);
 		FI prime_total = fill_primes(root);
-		fill_vols(root, prime_total);
-		return undertuned_count;
+		fill_explore_vols(root);
+		fill_tune_vols(root, prime_total);
+		return undertuned_samples;
 	}
 
 	FI prime() const {
@@ -1026,6 +1087,26 @@ public:
 		} else {
 			return _tree.leaf_data(root).stats.est_mean();
 		}
+	}
+	FI tune_vol() const {
+		CellHandle root = _tree.root();
+		if (_tree.type(root) == CellType::BRANCH) {
+			return _tree.branch_data(root).tune_vol;
+		} else {
+			return _tree.leaf_data(root).stats.est_tune_vol(prime());
+		}
+	}
+	FI explore_vol() const {
+		CellHandle root = _tree.root();
+		if (_tree.type(root) == CellType::BRANCH) {
+			return _tree.branch_data(root).explore_vol;
+		} else {
+			return _tree.leaf_data(root).stats.est_explore_vol(scale_exp);
+		}
+	}
+
+	FI rel_var() const {
+		return sq(prime() / mean()) - 1;
 	}
 };
 
@@ -1110,7 +1191,8 @@ class CellGenerator final {
 			// Rescale the function evaluation point.
 			R volume = 1;
 			for (Dim dim = 0; dim < D; ++dim) {
-				(*point_out)[dim] = offset[dim] + extent[dim] * choose_point[dim];
+				(*point_out)[dim] = offset[dim];
+				(*point_out)[dim] += extent[dim] * choose_point[dim];
 				volume *= extent[dim];
 			}
 			FI weight_norm = _tree.leaf_data(parent).prime;

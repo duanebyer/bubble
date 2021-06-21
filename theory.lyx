@@ -1511,9 +1511,9 @@ Let's investigate how the efficiency
 
 
 \begin_inset Formula 
-\[
-p_{G_{K}}^{(0)}-V\mu_{\rho}=\left(p_{G_{1}}^{(0)}-V\mu_{\rho}\right)K^{-\alpha}
-\]
+\begin{equation}
+p_{G_{K}}^{(0)}-V\mu_{\rho}=\left(p_{G_{1}}^{(0)}-V\mu_{\rho}\right)K^{-\alpha}\label{eq:prime-scaling-model-def}
+\end{equation}
 
 \end_inset
 
@@ -1525,7 +1525,7 @@ This model is motivated from simulations of
 \begin_inset Formula $k$
 \end_inset
 
--d trees on a linearly varying distribution 
+-d trees on a linear distribution 
 \begin_inset Formula $\rho$
 \end_inset
 
@@ -1540,7 +1540,11 @@ This model is motivated from simulations of
 \begin_inset Formula $\alpha$
 \end_inset
 
- is 
+ for 
+\begin_inset Formula $k$
+\end_inset
+
+-d trees is 
 \begin_inset Formula $1.9$
 \end_inset
 
@@ -1548,31 +1552,7 @@ This model is motivated from simulations of
 \end_layout
 
 \begin_layout Standard
-If we want to reach some desired efficiency 
-\begin_inset Formula $\varepsilon_{G_{K}}^{(0)}=\varepsilon_{\mathrm{target}}^{(0)}$
-\end_inset
-
-, then the number of cells that will be needed can now be easily estimated.
-\begin_inset Newline newline
-\end_inset
-
-
-\begin_inset Formula 
-\begin{align*}
-\varepsilon_{\mathrm{target}}^{(0)} & =\frac{V\mu_{\rho}}{\left(p_{G_{1}}^{(0)}-V\mu_{\rho}\right)K^{-\alpha}+V\mu_{\rho}}\\
-K & =\left[\left(\frac{\varepsilon_{\mathrm{target}}^{(0)}}{\varepsilon_{G_{1}}^{(0)}}\right)\left(\frac{1-\varepsilon_{G_{1}}^{(0)}}{1-\varepsilon_{\mathrm{target}}^{(0)}}\right)\right]^{1/\alpha}
-\end{align*}
-
-\end_inset
-
-
-\begin_inset Newline newline
-\end_inset
-
-However, this expression does not indicate where those divisions should
- be placed.
- To understand this, we will take a recursive view of the situation.
- Consider the generator 
+Consider the generator 
 \begin_inset Formula $G_{K}$
 \end_inset
 
@@ -1585,14 +1565,19 @@ However, this expression does not indicate where those divisions should
 \end_inset
 
  smaller pieces.
- Then, the overall prime can be written two ways.
+ Then, the overall prime can be written as a sum of the primes, scaling
+ with 
+\begin_inset Formula $K^{\prime}$
+\end_inset
+
+.
 \begin_inset Newline newline
 \end_inset
 
 
 \begin_inset Formula 
 \[
-\left(p_{G_{1}}^{(0)}-V\mu_{\rho}\right)\left(K+K^{\prime}\right)^{-\alpha}=\sum_{k=1}^{K}\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)\left(1+K_{k}^{\prime}\right)^{-\alpha}
+p^{(0)}-V\mu_{\rho}=\sum_{k=1}^{K}\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)\left(1+K_{k}^{\prime}\right)^{-\alpha}
 \]
 
 \end_inset
@@ -1601,8 +1586,7 @@ However, this expression does not indicate where those divisions should
 \begin_inset Newline newline
 \end_inset
 
-Let's start with the right-hand-side of the equation.
- If we want to reach a desired prime 
+To reach a desired prime 
 \begin_inset Formula $p_{\mathrm{target}}^{(0)}$
 \end_inset
 
@@ -1653,10 +1637,10 @@ To find
 
 
 \begin_inset Formula 
-\begin{align*}
-\left(\lambda\alpha\right)^{\alpha} & =\left(\frac{1}{p_{\mathrm{target}}^{(0)}}\sum_{k=1}^{K}\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)^{\frac{1}{\alpha+1}}\right)^{\alpha+1}\\
-\left(1+K_{k}^{\prime}\right)^{\alpha\left(\alpha+1\right)} & =\left(\sum_{k^{\prime}=1}^{K}\left(\frac{p_{k^{\prime}}^{(0)}-V_{k^{\prime}}\mu_{\rho,k^{\prime}}}{p_{\mathrm{target}}^{(0)}}\right)^{\frac{1}{\alpha+1}}\right)^{\alpha+1}\left(\frac{p_{k}^{(0)}-V_{k}\mu_{\rho,k}}{p_{\mathrm{target}}^{(0)}}\right)^{\alpha}
-\end{align*}
+\begin{align}
+\left(\lambda\alpha\right)^{\alpha} & =\left(\frac{1}{p_{\mathrm{target}}^{(0)}-V\mu_{\rho}}\sum_{k=1}^{K}\left(p_{k}^{(0)}-V_{k}\mu_{\rho,k}\right)^{\frac{1}{\alpha+1}}\right)^{\alpha+1}\nonumber \\
+\left(1+K_{k}^{\prime}\right)^{\alpha\left(\alpha+1\right)} & =\left(\sum_{k^{\prime}=1}^{K}\left(\frac{p_{k^{\prime}}^{(0)}-V_{k^{\prime}}\mu_{\rho,k^{\prime}}}{p_{\mathrm{target}}^{(0)}-V\mu_{\rho}}\right)^{\frac{1}{\alpha+1}}\right)^{\alpha+1}\left(\frac{p_{k}^{(0)}-V_{k}\mu_{\rho,k}}{p_{\mathrm{target}}^{(0)}-V\mu_{\rho}}\right)^{\alpha}\label{eq:division-count-opt-def}
+\end{align}
 
 \end_inset
 
@@ -1675,6 +1659,56 @@ The first factor is a global property of the cell generator, while the second
 \end_inset
 
 , not many divisions will be requested.
+ From 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:division-count-opt-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+, the total number of cells can be found.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align}
+K+K^{\prime} & =\left(\sum_{k^{\prime}=1}^{K}\left(\frac{p_{k^{\prime}}^{(0)}-V_{k^{\prime}}\mu_{\rho,k^{\prime}}}{p_{\mathrm{target}}^{(0)}-V\mu_{\rho}}\right)^{\frac{1}{\alpha+1}}\right)^{\frac{1}{\alpha}}\sum_{k=1}^{K}\left(\frac{p_{k}^{(0)}-V_{k}\mu_{\rho,k}}{p_{\mathrm{target}}^{(0)}-V\mu_{\rho}}\right)^{\frac{1}{\alpha+1}}\nonumber \\
+\left(K+K^{\prime}\right)^{\alpha} & =\left(\sum_{k^{\prime}=1}^{K}\left(\frac{p_{k^{\prime}}^{(0)}-V_{k^{\prime}}\mu_{\rho,k^{\prime}}}{p_{\mathrm{target}}^{(0)}-V\mu_{\rho}}\right)^{\frac{1}{\alpha+1}}\right)^{\alpha+1}\label{eq:division-count-total-opt-def}
+\end{align}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+Putting this back into equation 
+\begin_inset CommandInset ref
+LatexCommand eqref
+reference "eq:division-count-opt-def"
+plural "false"
+caps "false"
+noprefix "false"
+
+\end_inset
+
+ gives:
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{equation}
+1+K_{k}^{\prime}=\left(K+K^{\prime}\right)^{\frac{1}{\alpha+1}}\left(\frac{p_{k}^{(0)}-V_{k}\mu_{\rho,k}}{p_{\mathrm{target}}^{(0)}-V\mu_{\rho}}\right)^{\frac{1}{\alpha+1}}\label{eq:division-count-opt-v2-def}
+\end{equation}
+
+\end_inset
+
+
 \end_layout
 
 \begin_layout Section
