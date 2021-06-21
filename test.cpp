@@ -32,6 +32,7 @@ int main() {
 	std::cout << "Est. mean:      " << builder.mean() << std::endl;
 	std::cout << "Est. eff.:      " << est_eff << std::endl;
 	std::cout << "Est. rel. var.: " << est_rel_var << std::endl;
+	std::cout << "Scaling exp.  : " << builder.scale_exp() << std::endl;
 	auto generator = bubble::make_generator(builder);
 	std::cout << "Generating." << std::endl;
 	std::vector<Real> weights;

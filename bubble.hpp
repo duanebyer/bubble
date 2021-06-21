@@ -476,6 +476,12 @@ class CellBuilder final {
 	TreeType _tree;
 	// Random number engine.
 	RndL _rnd_left;
+	// The single-cell prime of the cell generator.
+	FI _prime_init;
+	FI _prime_init_err;
+	FI _mean_init;
+	FI _mean_init_err;
+	FI _scale_exp;
 
 public:
 	// Parameters that control various aspects of the exploration and tuning
@@ -489,10 +495,14 @@ public:
 	// The minimum cell volume (with volume equal to length^d) at which
 	// exploration terminates.
 	FI min_cell_length = 0.01;
-	// The exponent used when computing exploration volatility. This has been
-	// empirically determined to be between 0.5 and 2.0 for k-d trees on smooth
-	// functions.
-	FI scale_exp = 1.0;
+	// An exponent related to how quickly the efficiency increases with more
+	// cell divisions. It depends on the type of tree and the underlying
+	// distribution. Empirically, lies between 0.5 and 2.0 for most functions.
+	FI scale_exp_init = 1.0;
+	// How quickly the scaling exponent should be adjusted to match the
+	// distribution during the exploration phase, between zero and one. Set to
+	// zero to disable adjustments of the scaling exponent.
+	FI scale_exp_adjust = 0.25;
 	// The maximum cell volatility needed before exploration can ever terminate
 	// in a cell. Generally, this should be between 0.1 and 1 (usually closely
 	// to 1).
@@ -579,7 +589,7 @@ private:
 			}
 			return _tree.branch_data(parent).explore_vol;
 		} else {
-			return _tree.leaf_data(parent).stats.est_explore_vol(scale_exp);
+			return _tree.leaf_data(parent).stats.est_explore_vol(_scale_exp);
 		}
 	}
 	// Fills in tuning volatilities for a cell and all of its descendents.
@@ -696,8 +706,8 @@ private:
 					FI cell_vol =
 						std::pow(
 							vol_total / (0.5 * target_rel_var * mean_total),
-							1 / scale_exp)
-						* stats_total.est_explore_vol(scale_exp);
+							1 / _scale_exp)
+						* stats_total.est_explore_vol(_scale_exp);
 					// Termination will only be considered if the cell
 					// volatility hits the threshold value. This ensures that no
 					// matter what other termination conditions are considered,
@@ -984,6 +994,27 @@ public:
 			_rnd_left() {
 		std::seed_seq seed_seq { seed };
 		_rnd_left.seed(seed_seq);
+		// Always do a slight tune of the root cell before starting, to get the
+		// initial prime and mean.
+		FI relative_err;
+		FI rel_var;
+		FI rel_var_err;
+		std::size_t samples = 128;
+		do {
+			Point<D, R> offset;
+			Point<D, R> extent;
+			offset.fill(0);
+			extent.fill(1);
+			CellHandle root = _tree.root();
+			tune_cell(root, offset, extent, 0, samples);
+			_prime_init = _tree.leaf_data(root).stats
+				.est_prime(&_prime_init_err);
+			_mean_init = _tree.leaf_data(root).stats
+				.est_mean(&_mean_init_err);
+			rel_var = _tree.leaf_data(root).stats
+				.est_rel_var(&rel_var_err);
+			samples *= 2;
+		} while(rel_var_err > 0.05 * target_rel_var);
 	}
 
 	// Explores the distribution to create a well-balanced cell generator that
@@ -996,12 +1027,23 @@ public:
 		offset.fill(0);
 		extent.fill(1);
 		CellHandle root = _tree.root();
-		// TODO: Adjust `scale_exp` to fit the distribution as exploration
-		// proceeds.
 		std::size_t cells;
+		_scale_exp = scale_exp_init;
 		do {
 			cells = _tree.size();
 			FI mean_total = fill_means(root);
+			FI prime_total = fill_primes(root);
+			// Adjust the scaling exponent.
+			if (_tree.size() > 1 && scale_exp_adjust != 0) {
+				FI scale_exp_target =
+					std::log(
+						(_prime_init - mean_total)
+						/ (prime_total - mean_total))
+					/ std::log(_tree.size());
+				_scale_exp =
+					(1 - scale_exp_adjust) * _scale_exp
+					+ scale_exp_adjust * scale_exp_target;
+			}
 			FI vol_total = fill_explore_vols(root);
 			#pragma omp parallel
 			#pragma omp single
@@ -1012,7 +1054,6 @@ public:
 					mean_total, vol_total,
 					1);
 			}
-			FI prime_total = fill_primes(root);
 		} while (cells != _tree.size() && _tree.size() < max_explore_cells);
 		FI mean_total = fill_means(root);
 		FI prime_total = fill_primes(root);
@@ -1020,7 +1061,7 @@ public:
 		fill_tune_vols(root, prime_total);
 		// Calculate ideal number of cells, and see if we surpassed that number.
 		FI ideal_cells = static_cast<std::size_t>(
-			std::pow(vol_total, scale_exp + 1)
+			std::pow(vol_total, _scale_exp + 1)
 			/ (0.5 * target_rel_var * mean_total));
 		if (ideal_cells > _tree.size()) {
 			return ideal_cells - _tree.size();
@@ -1088,25 +1129,11 @@ public:
 			return _tree.leaf_data(root).stats.est_mean();
 		}
 	}
-	FI tune_vol() const {
-		CellHandle root = _tree.root();
-		if (_tree.type(root) == CellType::BRANCH) {
-			return _tree.branch_data(root).tune_vol;
-		} else {
-			return _tree.leaf_data(root).stats.est_tune_vol(prime());
-		}
-	}
-	FI explore_vol() const {
-		CellHandle root = _tree.root();
-		if (_tree.type(root) == CellType::BRANCH) {
-			return _tree.branch_data(root).explore_vol;
-		} else {
-			return _tree.leaf_data(root).stats.est_explore_vol(scale_exp);
-		}
-	}
-
 	FI rel_var() const {
 		return sq(prime() / mean()) - 1;
+	}
+	FI scale_exp() const {
+		return _scale_exp;
 	}
 };
 
