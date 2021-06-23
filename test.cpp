@@ -28,11 +28,11 @@ int main() {
 	}
 	Real est_eff = builder.mean() / builder.prime();
 	Real est_rel_var = 1 / (est_eff * est_eff) - 1;
+	std::cout << "Scaling exp.:   " << builder.scale_exp() << std::endl;
 	std::cout << "Total prime:    " << builder.prime() << std::endl;
 	std::cout << "Est. mean:      " << builder.mean() << std::endl;
 	std::cout << "Est. eff.:      " << est_eff << std::endl;
 	std::cout << "Est. rel. var.: " << est_rel_var << std::endl;
-	std::cout << "Scaling exp.  : " << builder.scale_exp() << std::endl;
 	auto generator = bubble::make_generator(builder);
 	std::cout << "Generating." << std::endl;
 	std::vector<Real> weights;
@@ -75,13 +75,15 @@ Real func_test(bubble::Point<DIM, Real> x) {
 		//result *= std::sin(PI * x[dim]);
 		//result += x[dim];
 	}
-	result = std::exp(-10 * std::sqrt(r2)) / std::sqrt(r2);
+	result = std::exp(-100 * std::sqrt(r2)) / std::sqrt(r2);
 	return result;
 }
 
 int thread_count() {
 	int n = 0;
+	#ifdef BUBBLE_USE_OPENMP
 	#pragma omp parallel reduction(+:n)
+	#endif
 	n += 1;
 	return n;
 }

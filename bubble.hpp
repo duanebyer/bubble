@@ -625,19 +625,25 @@ private:
 			return;
 		}
 		CellType type;
+		#ifdef BUBBLE_USE_OPENMP
 		#pragma omp critical (bubble_tree)
+		#endif
 		{
 			type = _tree.type(cell);
 		}
 		if (type == CellType::BRANCH) {
 			// If the cell has children, then recursively explore them.
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+				#ifdef BUBBLE_USE_OPENMP
 				#pragma omp task
+				#endif
 				{
 					Point<D, R> offset_local;
 					Point<D, R> extent_local;
 					CellHandle child;
+					#ifdef BUBBLE_USE_OPENMP
 					#pragma omp critical (bubble_tree)
+					#endif
 					{
 						offset_local = _tree.offset_local(cell, child_idx);
 						extent_local = _tree.extent_local(cell, child_idx);
@@ -657,7 +663,9 @@ private:
 						depth);
 				}
 			}
+			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp taskwait
+			#endif
 			return;
 		} else {
 			R volume = 1;
@@ -667,7 +675,9 @@ private:
 			// Statistics measures.
 			Stats<FI> stats;
 			Stats<FI> stats_init;
+			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp critical (bubble_tree)
+			#endif
 			{
 				stats_init = _tree.leaf_data(cell).stats;
 			}
@@ -680,7 +690,9 @@ private:
 			// Create a random number generator (a "right" generator) which will
 			// be used.
 			std::vector<Seed> seed;
+			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp critical (bubble_rand)
+			#endif
 			{
 				seed = sample_rnd_left();
 			}
@@ -724,7 +736,9 @@ private:
 						bool volume_cond = (volume <= std::pow(min_cell_length, D));
 						bool vol_cond = (cell_vol <= min_cell_explore_vol);
 						if (var_cond || volume_cond || vol_cond) {
+							#ifdef BUBBLE_USE_OPENMP
 							#pragma omp critical (bubble_tree)
+							#endif
 							{
 								_tree.leaf_data(cell).stats += stats;
 							}
@@ -827,7 +841,9 @@ private:
 								{ lambda_1 * stats_lower_min },
 								{ lambda_2 * stats_upper_min },
 							};
+							#ifdef BUBBLE_USE_OPENMP
 							#pragma omp critical (bubble_tree)
+							#endif
 							{
 								_tree.split(
 									cell,
@@ -930,7 +946,9 @@ private:
 
 			// Sample children according to volatility.
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+				#ifdef BUBBLE_USE_OPENMP
 				#pragma omp task
+				#endif
 				{
 					Point<D, R> offset_local;
 					Point<D, R> extent_local;
@@ -952,7 +970,9 @@ private:
 						samples_child[child_idx]);
 				}
 			}
+			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp taskwait
+			#endif
 			return;
 		} else {
 			// For a leaf, there are no children, so all of the samples will be
@@ -965,7 +985,9 @@ private:
 
 			// Create a random number generator.
 			std::vector<Seed> seed;
+			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp critical (bubble_rand)
+			#endif
 			{
 				seed = sample_rnd_left();
 			}
@@ -996,7 +1018,6 @@ public:
 		_rnd_left.seed(seed_seq);
 		// Always do a slight tune of the root cell before starting, to get the
 		// initial prime and mean.
-		FI relative_err;
 		FI rel_var;
 		FI rel_var_err;
 		std::size_t samples = 128;
@@ -1013,6 +1034,7 @@ public:
 				.est_mean(&_mean_init_err);
 			rel_var = _tree.leaf_data(root).stats
 				.est_rel_var(&rel_var_err);
+			static_cast<void>(rel_var);
 			samples *= 2;
 		} while(rel_var_err > 0.05 * target_rel_var);
 	}
@@ -1045,8 +1067,10 @@ public:
 					+ scale_exp_adjust * scale_exp_target;
 			}
 			FI vol_total = fill_explore_vols(root);
+			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp parallel
 			#pragma omp single
+			#endif
 			{
 				explore_cell(
 					root,
@@ -1100,8 +1124,10 @@ public:
 				samples = max_tune_samples;
 			}
 			// Sample from the cell generator.
+			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp parallel
 			#pragma omp single
+			#endif
 			{
 				tune_cell(root, offset, extent, prime_total, samples);
 			}
