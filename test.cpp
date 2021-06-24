@@ -1,21 +1,35 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <string>
 
-#include "bubble.hpp"
+#include <bubble.hpp>
 
 using Real = double;
 static bubble::Dim const DIM = 3;
 static Real const PI = 3.1415926;
 
-Real func_test(bubble::Point<DIM, Real> x);
+using Func = Real (*)(bubble::Point<DIM, Real>);
+Real func_constant(bubble::Point<DIM, Real> x);
+Real func_ball(bubble::Point<DIM, Real> x);
+Real func_sphere(bubble::Point<DIM, Real> x);
+Real func_waves(bubble::Point<DIM, Real> x);
+Real func_peak(bubble::Point<DIM, Real> x);
+Real func_peak_sharp(bubble::Point<DIM, Real> x);
+
+static Func const funcs[] = {
+	&func_constant,
+	&func_ball,
+	&func_sphere,
+	&func_waves,
+	&func_peak,
+	&func_peak_sharp,
+};
 
 int thread_count();
 
-int main() {
-	std::cout << std::setprecision(6) << std::fixed;
-	std::cout << "Number of threads: " << thread_count() << std::endl;
-	auto builder = bubble::make_builder<DIM, Real>(func_test);
+void build(int func_index, char const* file_name) {
+	auto builder = bubble::make_builder<DIM, Real>(funcs[func_index]);
 	std::cout << "Exploring." << std::endl;
 	std::size_t underexplored = builder.explore();
 	if (underexplored != 0) {
@@ -33,15 +47,22 @@ int main() {
 	std::cout << "Est. mean:      " << builder.mean() << std::endl;
 	std::cout << "Est. eff.:      " << est_eff << std::endl;
 	std::cout << "Est. rel. var.: " << est_rel_var << std::endl;
-	auto generator = bubble::make_generator(builder);
+	std::cout << "Writing to file: " << file_name << std::endl;
+	builder.write(file_name);
+}
+
+void generate(int func_index, char const* file_name, std::size_t samples) {
+	auto generator = bubble::make_generator<DIM, Real>(funcs[func_index]);
+	std::cout << "Reading from file: " << file_name << std::endl;
+	generator.read(file_name);
 	std::cout << "Generating." << std::endl;
 	std::vector<Real> weights;
 	std::cout << "Example points:" << std::endl;
-	for (std::size_t count = 0; count < 10000; ++count) {
+	for (std::size_t sample = 0; sample < samples; ++sample) {
 		Real weight;
 		bubble::Point<DIM, Real> point;
 		generator.generate(&weight, &point);
-		if (count < 10) {
+		if (sample < 10) {
 			std::cout
 				<< "\tw: " << weight << ", x: ("
 				<< point[0] << ", "
@@ -64,19 +85,27 @@ int main() {
 	Real weight_rel_var = weight_var / (weight_mean * weight_mean);
 	std::cout << "Sample eff.:      " << weight_eff << std::endl;
 	std::cout << "Sample rel. var.: " << weight_rel_var << std::endl;
-	return 0;
 }
 
-Real func_test(bubble::Point<DIM, Real> x) {
-	Real result = 1;
-	Real r2 = 0;
-	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
-		r2 += x[dim] * x[dim];
-		//result *= std::sin(PI * x[dim]);
-		//result += x[dim];
+int main(int argc, char** argv) {
+	if (argc != 4) {
+		std::cout << "Usage:" << std::endl
+			<< "\ttest build <func-index> <file-name>" << std::endl
+			<< "\ttest generate <func-index> <file-name>" << std::endl;
+		return 0;
 	}
-	result = std::exp(-100 * std::sqrt(r2)) / std::sqrt(r2);
-	return result;
+	std::string command = argv[1];
+	int func_index = std::stoi(std::string(argv[2]));
+	std::string file = argv[3];
+	if (command == "build") {
+		std::cout << "Number of threads: " << thread_count() << std::endl;
+		build(func_index, file.c_str());
+	} else if (command == "generate") {
+		generate(func_index, file.c_str(), 1000000);
+	} else {
+		std::cout << "Unrecognized command." << std::endl;
+	}
+	return 0;
 }
 
 int thread_count() {
@@ -86,5 +115,54 @@ int thread_count() {
 	#endif
 	n += 1;
 	return n;
+}
+
+Real func_constant(bubble::Point<DIM, Real> x) {
+	static_cast<void>(x);
+	return 1;
+}
+Real func_ball(bubble::Point<DIM, Real> x) {
+	Real r2 = 0;
+	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
+		r2 += (x[dim] - 0.5) * (x[dim] - 0.5);
+	}
+	if (r2 < 0.4 * 0.4) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
+Real func_sphere(bubble::Point<DIM, Real> x) {
+	Real r2 = 0;
+	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
+		r2 += (x[dim] - 0.5) * (x[dim] - 0.5);
+	}
+	if (r2 < 0.5 * 0.5 && r2 > 0.4 * 0.4) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
+Real func_waves(bubble::Point<DIM, Real> x) {
+	Real result = 1;
+	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
+		Real f = std::sin(4 * PI * x[dim]);
+		result *= f * f;
+	}
+	return result;
+}
+Real func_peak(bubble::Point<DIM, Real> x) {
+	Real r2 = 0;
+	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
+		r2 += (x[dim] - 0.5) * (x[dim] - 0.5);
+	}
+	return std::exp(-r2 / (2 * 0.1 * 0.1));
+}
+Real func_peak_sharp(bubble::Point<DIM, Real> x) {
+	Real r2 = 0;
+	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
+		r2 += (x[dim] - 0.5) * (x[dim] - 0.5);
+	}
+	return std::exp(-r2 / (2 * 0.001 * 0.001));
 }
 
