@@ -8,11 +8,13 @@
 #include <limits>
 #include <random>
 #include <stdexcept>
-#include <string>
 #include <type_traits>
 #include <utility>
 
 namespace bubble {
+
+// Identifier used in files.
+static char const FILE_HEAD[] = "bubble file";
 
 // Some utility functions.
 template<typename T>
@@ -181,6 +183,14 @@ public:
 
 	Tree(LeafData root_data) : _cells{Cell(root_data)} { }
 
+	void reserve(std::size_t cap) {
+		_cells.reserve(cap);
+	}
+	void clear(LeafData root_data) {
+		_cells.clear();
+		_cells.push_back(Cell(root_data));
+	}
+
 	CellHandle root() const {
 		return 0;
 	}
@@ -197,6 +207,10 @@ public:
 	CellType type(CellHandle cell) const {
 		return _cells[cell].type();
 	}
+	Branch const& branch(CellHandle cell) const {
+		return _cells[cell].branch;
+	}
+
 	LeafData const& leaf_data(CellHandle cell) const {
 		return _cells[cell].leaf_data;
 	}
@@ -488,7 +502,7 @@ public:
 	// process.
 
 	// The target relative variance that must be reached in all cells.
-	FI target_rel_var = 0.01;
+	FI target_rel_var = 0.1;
 	// The precision (in standard deviations) to which the relative variance
 	// must be reached.
 	FI target_rel_var_sigma = 1.5;
@@ -513,7 +527,7 @@ public:
 	// exploration to focus on the high-prime cells.
 	FI min_cell_explore_vol = 1;
 	// Chi-squared needed for a cell division to be triggered.
-	FI chi_squared_for_divide = 4;
+	FI chi_squared_for_divide = 2;
 	// Number of bins in edge histograms.
 	std::size_t hist_num_bins = 100;
 	// Minimum number of samples needed per bin before starting cell division.
@@ -523,7 +537,7 @@ public:
 	std::size_t min_cell_explore_samples = 256;
 	std::size_t max_cell_explore_samples = 524288;
 	// Maximum number of cells to create during exploration.
-	std::size_t max_explore_cells = 32768;
+	std::size_t max_explore_cells = 4096;
 	// The accuracy to which to tune within.
 	FI tune_rel_accuracy = 0.01;
 	// How many stages to tune. More stages gives slightly better tuning
@@ -1036,7 +1050,7 @@ public:
 				.est_rel_var(&rel_var_err);
 			static_cast<void>(rel_var);
 			samples *= 2;
-		} while(rel_var_err > 0.05 * target_rel_var);
+		} while(rel_var_err / rel_var > 0.05);
 	}
 
 	// Explores the distribution to create a well-balanced cell generator that
@@ -1137,6 +1151,59 @@ public:
 		fill_explore_vols(root);
 		fill_tune_vols(root, prime_total);
 		return undertuned_samples;
+	}
+
+	// Writes to file. A `CellBuilder` can be written to, but not read from, a
+	// file. It reduces all of the statistics known about the distribution down
+	// to a minimal set of data that can be constructed by a `CellGenerator`.
+	void write(char const* file_name) const {
+		std::ofstream file(file_name, std::ios::binary);
+		file.exceptions(std::ios::failbit | std::ios::badbit);
+		// Write identification string.
+		file.write(FILE_HEAD, sizeof(FILE_HEAD));
+		// Write sizes of important types, just as a quick validation.
+		std::size_t size_size_t = sizeof(std::size_t);
+		std::size_t size_tag = sizeof(unsigned char);
+		std::size_t size_dim = sizeof(Dim);
+		std::size_t size_split = sizeof(R);
+		std::size_t size_prime = sizeof(FI);
+		file.write(reinterpret_cast<char const*>(&size_size_t), sizeof(std::size_t));
+		file.write(reinterpret_cast<char const*>(&size_tag), sizeof(std::size_t));
+		file.write(reinterpret_cast<char const*>(&size_dim), sizeof(std::size_t));
+		file.write(reinterpret_cast<char const*>(&size_split), sizeof(std::size_t));
+		file.write(reinterpret_cast<char const*>(&size_prime), sizeof(std::size_t));
+		// Write total number of cells.
+		std::size_t num_cells = _tree.size();
+		file.write(reinterpret_cast<char const*>(&num_cells), sizeof(std::size_t));
+		std::vector<CellHandle> cells;
+		cells.push_back(_tree.root());
+		while (!cells.empty()) {
+			CellHandle cell = cells.back();
+			cells.pop_back();
+			if (_tree.type(cell) == CellType::BRANCH) {
+				typename TreeType::Branch const& branch = _tree.branch(cell);
+				// Branches store the following:
+				// * Tag (unsigned char).
+				// * Split dimension (unsigned char).
+				// * Split location (real).
+				unsigned char tag = 0;
+				file.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
+				file.write(reinterpret_cast<char const*>(&branch.dim), sizeof(Dim));
+				file.write(reinterpret_cast<char const*>(&branch.split), sizeof(R));
+				// Add branch children to be processed next, in order.
+				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+					cells.push_back(_tree.child(cell, child_idx));
+				}
+			} else {
+				// Leafs store the following:
+				// * Tag (unsigned char).
+				// * Prime (integration real).
+				unsigned char tag = 1;
+				FI prime = _tree.leaf_data(cell).stats.est_prime();
+				file.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
+				file.write(reinterpret_cast<char const*>(&prime), sizeof(FI));
+			}
+		}
 	}
 
 	FI prime() const {
@@ -1254,6 +1321,17 @@ class CellGenerator final {
 	}
 
 public:
+	// Creates a `CellGenerator` for use with a specific distribution.
+	CellGenerator(
+			F func,
+			Seed seed=std::random_device()) :
+			_func(func),
+			_tree(Data{ 1 }),
+			_rnd() {
+		std::seed_seq seed_seq { seed };
+		_rnd.seed(seed_seq);
+		fill_primes(_tree.root());
+	}
 	// Creates a `CellGenerator` directly from a `CellBuilder`. This should only
 	// be used for testing purposes on small generators. For large ones, this
 	// can lead to running out of memory very quickly.
@@ -1273,18 +1351,89 @@ public:
 		_rnd.seed(seed_seq);
 		fill_primes(_tree.root());
 	}
-	CellGenerator(
-			char const* file_name,
-			F func,
-			Seed seed=std::random_device()()) :
-			_func(func),
-			_tree(Data{ 1 }),
-			_rnd() {
-		std::seed_seq seed_seq { seed };
-		_rnd.seed(seed_seq);
-		std::ifstream fin(file_name,
-			std::ios_base::in
-			| std::ios_base::binary);
+
+	// Reads from a file.
+	void read(char const* file_name) {
+		std::ifstream file(file_name, std::ios::binary);
+		file.exceptions(std::ios::failbit | std::ios::badbit);
+		// Read identifier string.
+		char head[sizeof(FILE_HEAD)];
+		file.read(head, sizeof(FILE_HEAD));
+		for(std::size_t idx = 0; idx < sizeof(FILE_HEAD); ++idx) {
+			if (head[idx] != FILE_HEAD[idx]) {
+				throw std::runtime_error("File header mismatch");
+			}
+		}
+		// Read important data sizes.
+		std::size_t size_size_t;
+		std::size_t size_tag;
+		std::size_t size_dim;
+		std::size_t size_split;
+		std::size_t size_prime;
+		// `std::size_t` is especially important because the sizes themselves
+		// are of that size.
+		file.read(reinterpret_cast<char*>(&size_size_t), sizeof(std::size_t));
+		if (size_size_t != sizeof(std::size_t)) {
+			throw std::runtime_error("std::size_t size mismatch");
+		}
+		file.read(reinterpret_cast<char*>(&size_tag), sizeof(std::size_t));
+		file.read(reinterpret_cast<char*>(&size_dim), sizeof(std::size_t));
+		file.read(reinterpret_cast<char*>(&size_split), sizeof(std::size_t));
+		file.read(reinterpret_cast<char*>(&size_prime), sizeof(std::size_t));
+		if (size_tag != sizeof(unsigned char)) {
+			throw std::runtime_error("unsigned char size mismatch");
+		} else if (size_dim != sizeof(Dim)) {
+			throw std::runtime_error("Dim size mismatch");
+		} else if (size_split != sizeof(R)) {
+			throw std::runtime_error("R size mismatch");
+		} else if (size_prime != sizeof(FI)) {
+			throw std::runtime_error("FI size mismatch");
+		}
+		// Read number of cells.
+		std::size_t num_cells;
+		file.read(reinterpret_cast<char*>(&num_cells), sizeof(std::size_t));
+		// Read the cells themselves.
+		_tree.clear(Data{ 0 });
+		_tree.reserve(num_cells);
+		std::vector<CellHandle> cells;
+		cells.push_back(_tree.root());
+		while (!cells.empty()) {
+			// Read the next cell from the file.
+			CellHandle cell = cells.back();
+			cells.pop_back();
+			unsigned char tag;
+			file.read(reinterpret_cast<char*>(&tag), sizeof(unsigned char));
+			if (tag == 0) {
+				// Branch.
+				Dim dim;
+				R split;
+				file.read(reinterpret_cast<char*>(&dim), sizeof(Dim));
+				file.read(reinterpret_cast<char*>(&split), sizeof(R));
+				_tree.split(
+					cell,
+					typename TreeType::Branch(dim, split),
+					Data(0),
+					{ Data(0), Data(0) });
+				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+					cells.push_back(_tree.child(cell, child_idx));
+				}
+			} else if (tag == 1) {
+				// Leaf.
+				FI prime;
+				file.read(reinterpret_cast<char*>(&prime), sizeof(FI));
+				_tree.leaf_data(cell).prime = prime;
+			} else {
+				throw std::runtime_error("invalid tag");
+			}
+		}
+		if (_tree.size() > num_cells) {
+			throw std::runtime_error("wrong number of cells");
+		}
+		/*
+		if (file) {
+			throw std::runtime_error("unexpected data");
+		}
+		*/
 		fill_primes(_tree.root());
 	}
 
@@ -1315,6 +1464,12 @@ inline CellBuilder<D, R, F> make_builder(
 		F func,
 		Seed seed=std::random_device()()) {
 	return CellBuilder<D, R, F>(func, seed);
+}
+template<Dim D, typename R, typename F>
+inline CellGenerator<D, R, F> make_generator(
+		F func,
+		Seed seed=std::random_device()()) {
+	return CellGenerator<D, R, F>(func, seed);
 }
 template<Dim D, typename R, typename F>
 inline CellGenerator<D, R, F> make_generator(
