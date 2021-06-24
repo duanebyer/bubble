@@ -298,7 +298,7 @@ struct Stats final {
 		FI measure_sq = sq(measure);
 		mean_total += measure;
 		mom2_total += measure_sq;
-		mom3_total += measure_sq * sq(measure_sq);
+		mom3_total += measure * measure_sq;
 		mom4_total += sq(measure_sq);
 		count += 1;
 	}
@@ -323,7 +323,7 @@ struct Stats final {
 		FI scale_sq = sq(scale);
 		mean_total *= scale;
 		mom2_total *= scale_sq;
-		mom3_total *= scale * sq(scale_sq);
+		mom3_total *= scale * scale_sq;
 		mom4_total *= sq(scale_sq);
 		return *this;
 	}
@@ -383,8 +383,8 @@ struct Stats final {
 			// TODO: Right now, the variance estimate is very bad! It assumes
 			// that the mean and variance are independent and Gaussian, which is
 			// most likely not true.
-			*rel_var_err_out = rel_var
-				* std::sqrt(4 * sq(mean_err / mean) + sq(var_err / var));
+			*rel_var_err_out = 1 / sq(mean)
+				* std::sqrt(4 * sq(var * mean_err / mean) + sq(var_err));
 		}
 		return rel_var;
 	}
@@ -1024,33 +1024,60 @@ private:
 	}
 
 public:
-	CellBuilder(F func, Seed seed=std::random_device()()) :
+	CellBuilder(
+			F func,
+			std::size_t init_samples=16384,
+			Seed seed=std::random_device()()) :
 			_func(func),
 			_tree(LeafData()),
 			_rnd_left() {
+		// Seed the left generator.
 		std::seed_seq seed_seq { seed };
 		_rnd_left.seed(seed_seq);
-		// Always do a slight tune of the root cell before starting, to get the
-		// initial prime and mean.
-		FI rel_var;
-		FI rel_var_err;
-		std::size_t samples = 128;
-		do {
-			Point<D, R> offset;
-			Point<D, R> extent;
-			offset.fill(0);
-			extent.fill(1);
-			CellHandle root = _tree.root();
-			tune_cell(root, offset, extent, 0, samples);
-			_prime_init = _tree.leaf_data(root).stats
-				.est_prime(&_prime_init_err);
-			_mean_init = _tree.leaf_data(root).stats
-				.est_mean(&_mean_init_err);
-			rel_var = _tree.leaf_data(root).stats
-				.est_rel_var(&rel_var_err);
-			static_cast<void>(rel_var);
-			samples *= 2;
-		} while(rel_var_err / rel_var > 0.05);
+		// Sample a new generator for initialization.
+		std::vector<Seed> seed_right = sample_rnd_left();
+		std::seed_seq seed_seq_right(seed_right.begin(), seed_right.end());
+		RndR rnd(seed_seq_right);
+		// Do some sampling of the distribution before starting. Doing this
+		// sampling gives an initial mean and prime estimate, and also lets us
+		// catch some common errors.
+		FI prime;
+		FI prime_err;
+		CellHandle root = _tree.root();
+		Stats<FI>& stats = _tree.leaf_data(root).stats;
+		std::size_t sample = 0;
+		bool sample_cond;
+		bool prime_cond;
+		for (std::size_t sample = 0; sample < init_samples; ++sample) {
+			// Assuming a volume of 1 for the unit hypercube.
+			Point<D, R> point;
+			for (Dim dim = 0; dim < D; ++dim) {
+				std::uniform_real_distribution<R> x_dist(0, 1);
+				point[dim] = x_dist(rnd);
+			}
+			FI f = _func(point);
+			if (!(f >= 0)) {
+				throw std::runtime_error(
+					"distribution is not non-negative everywhere");
+			}
+			stats.update(_func(point));
+		}
+		_prime_init = stats.est_prime(&_prime_init_err);
+		_mean_init = stats.est_mean(&_mean_init_err);
+		if (!std::isfinite(stats.mean_total)
+				|| !std::isfinite(stats.mom2_total)
+				|| !std::isfinite(stats.mom3_total)
+				|| !std::isfinite(stats.mom4_total)) {
+			throw std::runtime_error(
+				"distribution statistics overflowed");
+		}
+		if (stats.mean_total <= 0
+				|| stats.mom2_total <= 0
+				|| stats.mom3_total <= 0
+				|| stats.mom4_total <= 0) {
+			throw std::runtime_error(
+				"distribution cannot be distinguished from zero");
+		}
 	}
 
 	// Explores the distribution to create a well-balanced cell generator that
@@ -1462,8 +1489,9 @@ public:
 template<Dim D, typename R, typename F>
 inline CellBuilder<D, R, F> make_builder(
 		F func,
+		std::size_t init_samples=16384,
 		Seed seed=std::random_device()()) {
-	return CellBuilder<D, R, F>(func, seed);
+	return CellBuilder<D, R, F>(func, init_samples, seed);
 }
 template<Dim D, typename R, typename F>
 inline CellGenerator<D, R, F> make_generator(
