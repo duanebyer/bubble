@@ -21,6 +21,24 @@ template<typename T>
 static T sq(T x) {
 	return x * x;
 }
+template<typename T>
+static T clamp(T x, T min, T max) {
+	if (x < min) {
+		return min;
+	} else if (x < max) {
+		return x;
+	} else {
+		return max;
+	}
+}
+template<typename T>
+static T clamp_above(T x, T min=0) {
+	if (!(x >= min)) {
+		return min;
+	} else {
+		return x;
+	}
+}
 
 using Seed = unsigned long;
 using Dim = unsigned char;
@@ -180,6 +198,9 @@ public:
 	static_assert(
 		std::is_floating_point<Real>::value,
 		"Branch::Real must be a floating point type.");
+	static_assert(
+		std::numeric_limits<Real>::is_iec559,
+		"Branch::Real must satisfy IEC 559");
 
 	Tree(LeafData root_data) : _cells{Cell(root_data)} { }
 
@@ -329,79 +350,72 @@ struct Stats final {
 	}
 
 	FI est_mean(FI* mean_err_out=nullptr) const {
-		// Unbiased estimate of mean.
 		FI mean = mean_total / count;
-		// Unbiased estimate of variance.
-		FI var = (mom2_total - sq(mean) * count) / (count - 1);
-		// Error in estimate of mean.
 		if (mean_err_out != nullptr) {
+			FI var = clamp_above<FI>((mom2_total - mean * mean_total) / (count - 1));
 			*mean_err_out = std::sqrt(var / count);
 		}
 		return mean;
 	}
 	FI est_var(FI* var_err_out=nullptr) const {
-		// Unbiased estimate of mean.
 		FI mean = mean_total / count;
 		FI mean_sq = sq(mean);
-		// Sample second and fourth central moments (biased).
-		FI m2 = mom2_total / count - sq(mean);
-		FI m4 = (
-			mom4_total
-			- 4 * mean * mom3_total
-			+ 6 * mean_sq * mom2_total) / count
-			- 3 * sq(mean_sq);
-		// H-statistic for the fourth central moment.
-		FI coeff_n_1 = FI(2) / (count - 2)
-			+ 0.5 * FI(1) / (count - 1)
-			-0.5 * FI(9) / (count - 3);
-		FI coeff_n_2 = 1
-			+ FI(1) / (count - 1)
-			- FI(6) / (count - 2)
-			+ FI(9) / (count - 3);
-		FI h4 = 3 * coeff_n_1 * sq(m2) + coeff_n_2 * m4;
-		// H-statistic for the second central moment (or, sample variance).
-		FI h2 = m2 * count / (count - 1);
+		FI var = clamp_above<FI>((mom2_total - mean * mean_total) / (count - 1));
 		if (var_err_out != nullptr) {
-			// TODO: This error calculation is a little more complicated than it
-			// needs to be. It's already quite biased, so the attempts to reduce
-			// bias are likely ineffective.
-			*var_err_out = std::sqrt(
-				h4 / count - (FI(3) / count - FI(2) / (count - 1)) * sq(h2));
+			// Central fourth moment (biased).
+			FI cmom4 = (
+				mom4_total
+				- 4 * mean * mom3_total
+				+ 6 * mean_sq * mom2_total
+				- 3 * mean_sq * mean * mean_total) / count;
+			*var_err_out = std::sqrt(clamp_above<FI>((cmom4 - sq(var)) / count));
 		}
-		return h2;
+		return var;
 	}
 	FI est_rel_var(FI* rel_var_err_out=nullptr) const {
-		// Mean estimate and variance.
 		FI mean_err;
 		FI mean = est_mean(&mean_err);
-		// Variance estimate and variance.
 		FI var_err;
 		FI var = est_var(&var_err);
-		// Relative variance, with a small correction for bias.
-		FI rel_var = var / sq(mean) * (1 - 3 / count * var / sq(mean));
+		// Small correction to relative variance for bias.
+		FI rel_var_0 = clamp<FI>(var / sq(mean), 0, count);
+		FI correction = -3 * rel_var_0 / count;
+		// Correction must be small.
+		if (!(-0.5 < correction && correction < 0.5)) {
+			correction = 0;
+		}
+		FI rel_var = rel_var_0 * (1 + correction);
 		if (rel_var_err_out != nullptr) {
 			// TODO: Right now, the variance estimate is very bad! It assumes
 			// that the mean and variance are independent and Gaussian, which is
 			// most likely not true.
-			*rel_var_err_out = 1 / sq(mean)
-				* std::sqrt(4 * sq(var * mean_err / mean) + sq(var_err));
+			FI err = clamp<FI>(
+				1 / sq(mean) * std::sqrt(
+					4 * var * rel_var_0 * sq(mean_err) + sq(var_err)),
+				0, std::numeric_limits<FI>::infinity());
+			*rel_var_err_out = err;
 		}
 		return rel_var;
 	}
 	FI est_prime(FI* prime_err_out=nullptr) const {
-		// Unbiased estimate of the second moment.
+		// Unbiased estimates of second moment with its variance.
 		FI mom2 = mom2_total / count;
-		// Unbiased estimate of variance of square.
-		FI var2 = (mom4_total - sq(mom2) * count) / (count - 1);
-		// Variance in estimate of second moment.
-		FI mom2_var = var2 / count;
 		// Estimate the ideal prime value, which is given by:
 		//     F_c = \sqrt{V_c \int dx f^2(x)}
 		// with a small correction for bias added on.
-		FI prime = std::sqrt(mom2) * (1 + mom2_var / (8 * sq(mom2)));
+		FI prime_0 = std::sqrt(mom2);
+		FI mom4 = mom4_total / count;
+		FI ratio = clamp<FI>(mom4 / sq(mom2), 0, count);
+		FI correction = clamp_above<FI>((ratio - 1) / 8 / count);
+		// The correction must be small.
+		if (!(-0.5 < correction && correction < 0.5)) {
+			correction = 0;
+		}
+		FI prime = prime_0 * (1 + correction);
 		// Error in estimate of prime value.
 		if (prime_err_out != nullptr) {
-			*prime_err_out = 0.5 * std::sqrt(mom2_var / mom2);
+			FI ratio_mom2 = clamp<FI>(mom4 / mom2, 0, mom2_total);
+			*prime_err_out = 0.5 * std::sqrt(ratio_mom2);
 		}
 		return prime;
 	}
@@ -414,10 +428,10 @@ struct Stats final {
 	FI est_tune_vol(FI prime_tot) const {
 		FI prime = est_prime();
 		FI mom2 = mom2_total / count;
-		FI var2 = (mom4_total - sq(mom2) * count) / (count - 1);
+		FI var2 = (mom4_total - mom2 * mom2_total) / (count - 1);
+		FI ratio = clamp<FI>(var2 / sq(mom2), 0, count);
 		FI tune_vol = 0.5 * std::sqrt(
-			(prime / prime_tot) * ((prime_tot - prime) / prime_tot)
-			* (var2 / sq(mom2)));
+			(prime / prime_tot) * ((prime_tot - prime) / prime_tot) * ratio);
 		return tune_vol;
 	}
 };
@@ -461,6 +475,18 @@ class CellBuilder final {
 	static_assert(
 		std::is_floating_point<FR>::value,
 		"Function must return floating point type.");
+	static_assert(
+		std::is_floating_point<FI>::value,
+		"Integral must be floating point type.");
+	static_assert(
+		std::numeric_limits<R>::is_iec559,
+		"R must satisfy IEC 559");
+	static_assert(
+		std::numeric_limits<FR>::is_iec559,
+		"Function must return type satisfying IEC 559");
+	static_assert(
+		std::numeric_limits<FI>::is_iec559,
+		"Integral must be type satisfying IEC 559.");
 
 	// The reason that we don't store a `Stats` and instead keep all of these
 	// variables separate is because the `prime` and `volatility` measures are
@@ -513,10 +539,11 @@ public:
 	// cell divisions. It depends on the type of tree and the underlying
 	// distribution. Empirically, lies between 0.5 and 2.0 for most functions.
 	FI scale_exp_init = 1.0;
-	// How quickly the scaling exponent should be adjusted to match the
-	// distribution during the exploration phase, between zero and one. Set to
-	// zero to disable adjustments of the scaling exponent.
-	FI scale_exp_adjust = 0.25;
+	// Whether to adjust the scaling exponent in response to the behaviour of
+	// the distribution at smaller and smaller scales.
+	bool scale_exp_adjust = true;
+	// Number of past points to consider when adjusting the scaling exponent.
+	std::size_t scale_exp_points = 5;
 	// The maximum cell volatility needed before exploration can ever terminate
 	// in a cell. Generally, this should be between 0.1 and 1 (usually closely
 	// to 1).
@@ -537,7 +564,7 @@ public:
 	std::size_t min_cell_explore_samples = 256;
 	std::size_t max_cell_explore_samples = 524288;
 	// Maximum number of cells to create during exploration.
-	std::size_t max_explore_cells = 4096;
+	std::size_t max_explore_cells = 16384;
 	// The accuracy to which to tune within.
 	FI tune_rel_accuracy = 0.01;
 	// How many stages to tune. More stages gives slightly better tuning
@@ -1041,13 +1068,8 @@ public:
 		// Do some sampling of the distribution before starting. Doing this
 		// sampling gives an initial mean and prime estimate, and also lets us
 		// catch some common errors.
-		FI prime;
-		FI prime_err;
 		CellHandle root = _tree.root();
 		Stats<FI>& stats = _tree.leaf_data(root).stats;
-		std::size_t sample = 0;
-		bool sample_cond;
-		bool prime_cond;
 		for (std::size_t sample = 0; sample < init_samples; ++sample) {
 			// Assuming a volume of 1 for the unit hypercube.
 			Point<D, R> point;
@@ -1092,20 +1114,43 @@ public:
 		CellHandle root = _tree.root();
 		std::size_t cells;
 		_scale_exp = scale_exp_init;
+		std::vector<FI> prev_primes;
+		std::vector<std::size_t> prev_cells;
 		do {
 			cells = _tree.size();
 			FI mean_total = fill_means(root);
 			FI prime_total = fill_primes(root);
+			prev_primes.push_back(prime_total);
+			prev_cells.push_back(_tree.size());
 			// Adjust the scaling exponent.
-			if (_tree.size() > 1 && scale_exp_adjust != 0) {
+			if (scale_exp_adjust && prev_primes.size() >= 2) {
+				FI mean_log_cells = 0;
+				FI mean_log_prime = 0;
+				FI mean_log_cells_sq = 0;
+				FI mean_log_prime_cells = 0;
+				std::size_t idx_start = 0;
+				if (prev_primes.size() >= scale_exp_points) {
+					idx_start = prev_primes.size() - scale_exp_points;
+				}
+				std::size_t count = prev_primes.size() - idx_start;
+				for (std::size_t idx = idx_start; idx < prev_primes.size(); ++idx) {
+					auto log_cells = std::log(prev_cells[idx]);
+					FI log_prime = std::log(prev_primes[idx] - mean_total);
+					mean_log_cells += log_cells / count;
+					mean_log_prime += log_prime / count;
+					mean_log_cells_sq += sq(log_cells) / count;
+					mean_log_prime_cells += log_prime * log_cells / count;
+				}
 				FI scale_exp_target =
-					std::log(
-						(_prime_init - mean_total)
-						/ (prime_total - mean_total))
-					/ std::log(_tree.size());
-				_scale_exp =
-					(1 - scale_exp_adjust) * _scale_exp
-					+ scale_exp_adjust * scale_exp_target;
+					-(mean_log_prime_cells - mean_log_prime * mean_log_cells)
+					/ (mean_log_cells_sq - sq(mean_log_cells));
+				if (scale_exp_target < 0) {
+					scale_exp_target = 0;
+				}
+				if (!std::isfinite(scale_exp_target)) {
+					scale_exp_target = scale_exp_init;
+				}
+				_scale_exp = scale_exp_target;
 			}
 			FI vol_total = fill_explore_vols(root);
 			#ifdef BUBBLE_USE_OPENMP
