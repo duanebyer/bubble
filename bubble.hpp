@@ -262,7 +262,6 @@ public:
 			BranchData branch_data,
 			const LeafData (&leaf_data)[NUM_CHILDREN]) {
 		// Append the new cells to the tree.
-		_cells.reserve(_cells.size() + NUM_CHILDREN);
 		Cell parent(branch_data, branch);
 		for (std::size_t child = 0; child < NUM_CHILDREN; ++child) {
 			parent.branch.children[child] = _cells.size();
@@ -545,12 +544,12 @@ public:
 	// Chi-squared needed for a cell division to be triggered.
 	R chi_squared_for_divide = 2;
 	// Number of bins in edge histograms.
-	std::size_t hist_num_bins = 100;
+	std::size_t hist_num_bins = 128;
 	// Minimum number of samples needed per bin before starting cell division.
 	std::size_t hist_num_per_bin = 5;
 	// Minimum and maximum number of samples to be taken in a single cell during
 	// the exploration phase.
-	std::size_t min_cell_explore_samples = 256;
+	std::size_t min_cell_explore_samples = 512;
 	std::size_t max_cell_explore_samples = 524288;
 	// Maximum number of cells to create during exploration.
 	std::size_t max_explore_cells = 2*2*2*2*65536;
@@ -655,11 +654,24 @@ private:
 			return;
 		}
 		CellType type;
+		Point<D, R> offset_local[TreeType::NUM_CHILDREN];
+		Point<D, R> extent_local[TreeType::NUM_CHILDREN];
+		CellHandle child[TreeType::NUM_CHILDREN];
+		Stats<R> stats_init;
 		#ifdef BUBBLE_USE_OPENMP
 		#pragma omp critical (bubble_tree)
 		#endif
 		{
 			type = _tree.type(cell);
+			if (type == CellType::BRANCH) {
+				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+					offset_local[child_idx] = _tree.offset_local(cell, child_idx);
+					extent_local[child_idx] = _tree.extent_local(cell, child_idx);
+					child[child_idx] = _tree.child(cell, child_idx);
+				}
+			} else {
+				stats_init = _tree.leaf_data(cell).stats;
+			}
 		}
 		if (type == CellType::BRANCH) {
 			// If the cell has children, then recursively explore them.
@@ -668,26 +680,15 @@ private:
 				#pragma omp task
 				#endif
 				{
-					Point<D, R> offset_local;
-					Point<D, R> extent_local;
-					CellHandle child;
-					#ifdef BUBBLE_USE_OPENMP
-					#pragma omp critical (bubble_tree)
-					#endif
-					{
-						offset_local = _tree.offset_local(cell, child_idx);
-						extent_local = _tree.extent_local(cell, child_idx);
-						child = _tree.child(cell, child_idx);
-					}
 					Point<D, R> offset_child;
 					Point<D, R> extent_child;
 					for (Dim dim = 0; dim < D; ++dim) {
 						offset_child[dim] = offset[dim];
-						offset_child[dim] += extent[dim] * offset_local[dim];
-						extent_child[dim] = extent[dim] * extent_local[dim];
+						offset_child[dim] += extent[dim] * offset_local[child_idx][dim];
+						extent_child[dim] = extent[dim] * extent_local[child_idx][dim];
 					}
 					explore_cell(
-						child,
+						child[child_idx],
 						offset_child, extent_child,
 						mean_total, vol_total,
 						depth);
@@ -702,15 +703,7 @@ private:
 			for (Dim dim = 0; dim < D; ++dim) {
 				volume *= extent[dim];
 			}
-			// Statistics measures.
 			Stats<R> stats;
-			Stats<R> stats_init;
-			#ifdef BUBBLE_USE_OPENMP
-			#pragma omp critical (bubble_tree)
-			#endif
-			{
-				stats_init = _tree.leaf_data(cell).stats;
-			}
 			// Histograms, one for each axis of the hypercube.
 			std::vector<Stats<R> > hist_stats[D];
 			for (Dim dim = 0; dim < D; ++dim) {
@@ -1163,10 +1156,6 @@ public:
 				_scale_exp = scale_exp_target;
 			}
 			R vol_total = fill_explore_vols(root);
-			R ideal_cells = std::pow(
-				std::pow(vol_total, _scale_exp + 1)
-					/ (0.5 * target_rel_var * mean_total),
-				1 / _scale_exp);
 			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp parallel
 			#pragma omp single
