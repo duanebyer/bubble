@@ -14,7 +14,7 @@
 namespace bubble {
 
 // Identifier used in files.
-static char const FILE_HEAD[] = "bubble file";
+constexpr char FILE_HEAD[] = "bubble file";
 
 // Some utility functions.
 template<typename T>
@@ -47,13 +47,26 @@ using CellHandle = std::size_t;
 template<Dim D, typename R>
 using Point = std::array<R, D>;
 
+template<Dim D, typename R, typename F, typename=void>
+struct IsDistribution {
+	static constexpr bool value = false;
+};
+template<Dim D, typename R, typename F>
+struct IsDistribution<D, R, F,
+	typename std::enable_if<
+		// Requires that `F` can take a `Point<D, R>` to a type convertible to
+		// `R` without exceptions.
+		noexcept(R(std::declval<F>()(std::declval<Point<D, R> >())))>::type> {
+	static constexpr bool value = true;
+};
+
 // A branch node for a k-d type tree.
 template<Dim D, typename R>
 struct KdBranch final {
 	using Real = R;
-	static Dim const DIM = D;
+	static constexpr Dim DIM = D;
 
-	static std::size_t const NUM_CHILDREN = 2;
+	static constexpr std::size_t NUM_CHILDREN = 2;
 	CellHandle children[NUM_CHILDREN];
 	R split;
 	Dim dim;
@@ -191,9 +204,9 @@ public:
 	using Branch = B;
 	using BranchData = DB;
 	using LeafData = DL;
-	static Dim const DIM = Branch::DIM;
+	static constexpr Dim DIM = Branch::DIM;
 	using Real = typename Branch::Real;
-	static std::size_t const NUM_CHILDREN = Branch::NUM_CHILDREN;
+	static constexpr std::size_t NUM_CHILDREN = Branch::NUM_CHILDREN;
 
 	static_assert(
 		std::is_floating_point<Real>::value,
@@ -299,11 +312,11 @@ struct Stats final {
 	std::size_t count;
 
 	Stats() :
-		mean_total(0),
-		mom2_total(0),
-		mom3_total(0),
-		mom4_total(0),
-		count(0) { }
+		mean_total(0.),
+		mom2_total(0.),
+		mom3_total(0.),
+		mom4_total(0.),
+		count(0.) { }
 	Stats(
 		R mean_total,
 		R mom2_total, R mom3_total, R mom4_total,
@@ -348,55 +361,54 @@ struct Stats final {
 		return *this;
 	}
 
-	R est_mean(R* mean_err_out=nullptr) const {
+	R est_mean(R* mean_var_out=nullptr) const {
 		R mean = mean_total / count;
-		if (mean_err_out != nullptr) {
+		if (mean_var_out != nullptr) {
 			R var = clamp_above<R>((mom2_total - mean * mean_total) / (count - 1));
-			*mean_err_out = std::sqrt(var / count);
+			*mean_var_out = var / count;
 		}
 		return mean;
 	}
-	R est_var(R* var_err_out=nullptr) const {
+	R est_var(R* var_var_out=nullptr) const {
 		R mean = mean_total / count;
 		R mean_sq = sq(mean);
 		R var = clamp_above<R>((mom2_total - mean * mean_total) / (count - 1));
-		if (var_err_out != nullptr) {
+		if (var_var_out != nullptr) {
 			// Central fourth moment (biased).
 			R cmom4 = (
 				mom4_total
-				- 4 * mean * mom3_total
-				+ 6 * mean_sq * mom2_total
-				- 3 * mean_sq * mean * mean_total) / count;
-			*var_err_out = std::sqrt(clamp_above<R>((cmom4 - sq(var)) / count));
+				- 4. * mean * mom3_total
+				+ 6. * mean_sq * mom2_total
+				- 3. * mean_sq * mean * mean_total) / count;
+			*var_var_out = clamp_above<R>((cmom4 - sq(var)) / count);
 		}
 		return var;
 	}
-	R est_rel_var(R* rel_var_err_out=nullptr) const {
-		R mean_err;
-		R mean = est_mean(&mean_err);
-		R var_err;
-		R var = est_var(&var_err);
+	R est_rel_var(R* rel_var_var_out=nullptr) const {
+		R mean_var;
+		R mean = est_mean(&mean_var);
+		R var_var;
+		R var = est_var(&var_var);
 		// Small correction to relative variance for bias.
-		R rel_var_0 = clamp<R>(var / sq(mean), 0, count);
-		R correction = -3 * rel_var_0 / count;
+		R rel_var_0 = clamp<R>(var / sq(mean), 0., count);
+		R correction = -3. * rel_var_0 / count;
 		// Correction must be small.
 		if (!(-0.5 < correction && correction < 0.5)) {
-			correction = 0;
+			correction = 0.;
 		}
-		R rel_var = rel_var_0 * (1 + correction);
-		if (rel_var_err_out != nullptr) {
-			// TODO: Right now, the variance estimate is very bad! It assumes
-			// that the mean and variance are independent and Gaussian, which is
-			// most likely not true.
-			R err = clamp<R>(
-				1 / sq(mean) * std::sqrt(
-					4 * var * rel_var_0 * sq(mean_err) + sq(var_err)),
-				0, std::numeric_limits<R>::infinity());
-			*rel_var_err_out = err;
+		R rel_var = rel_var_0 * (1. + correction);
+		if (rel_var_var_out != nullptr) {
+			R mom2 = mom2_total / count;
+			R mom3 = mom3_total / count;
+			R mom4 = mom4_total / count;
+			R var2 = mom4 - sq(mom2);
+			R diff2 = sq(mom2) - mean * mom3;
+			*rel_var_var_out = clamp_above<R>(
+				(var2 * sq(mean) + 4. * diff2 * mom2) / (sq(sq(mean)) * var) / count);
 		}
 		return rel_var;
 	}
-	R est_prime(R* prime_err_out=nullptr) const {
+	R est_prime(R* prime_var_out=nullptr) const {
 		// Unbiased estimates of second moment with its variance.
 		R mom2 = mom2_total / count;
 		// Estimate the ideal prime value, which is given by:
@@ -404,31 +416,31 @@ struct Stats final {
 		// with a small correction for bias added on.
 		R prime_0 = std::sqrt(mom2);
 		R mom4 = mom4_total / count;
-		R ratio = clamp<R>(mom4 / sq(mom2), 0, count);
-		R correction = clamp_above<R>((ratio - 1) / 8 / count);
+		R ratio = clamp<R>(mom4 / sq(mom2), 0., count);
+		R correction = clamp_above<R>((ratio - 1.) / (8. * count));
 		// The correction must be small.
 		if (!(-0.5 < correction && correction < 0.5)) {
 			correction = 0;
 		}
-		R prime = prime_0 * (1 + correction);
+		R prime = prime_0 * (1. + correction);
 		// Error in estimate of prime value.
-		if (prime_err_out != nullptr) {
-			R ratio_mom2 = clamp<R>(mom4 / mom2 - mom2, 0, mom2_total);
-			*prime_err_out = 0.5 * std::sqrt(ratio_mom2 / count);
+		if (prime_var_out != nullptr) {
+			R ratio_mom2 = clamp<R>(mom4 / mom2 - mom2, 0., mom2_total);
+			*prime_var_out = 0.25 * ratio_mom2 / count;
 		}
 		return prime;
 	}
 	R est_explore_vol(R alpha) const {
 		R prime = est_prime();
 		R mean = est_mean();
-		R explore_vol = std::pow(prime - mean, 1 / (alpha + 1));
+		R explore_vol = std::pow(prime - mean, 1. / (alpha + 1.));
 		return explore_vol;
 	}
 	R est_tune_vol(R prime_tot) const {
 		R prime = est_prime();
 		R mom2 = mom2_total / count;
-		R var2 = (mom4_total - mom2 * mom2_total) / (count - 1);
-		R ratio = clamp<R>(var2 / sq(mom2), 0, count);
+		R var2 = (mom4_total - mom2 * mom2_total) / (count - 1.);
+		R ratio = clamp<R>(var2 / sq(mom2), 0., count);
 		R tune_vol = 0.5 * std::sqrt(
 			(prime / prime_tot) * ((prime_tot - prime) / prime_tot) * ratio);
 		return tune_vol;
@@ -464,17 +476,16 @@ class CellBuilder final {
 	using RndL = std::mt19937;
 	using RndR = std::mt19937_64;
 
-	// Return type of the function.
 	static_assert(
 		std::is_floating_point<R>::value,
 		"R must be a floating point type.");
 	static_assert(
 		std::numeric_limits<R>::is_iec559,
-		"R must satisfy IEC 559");
-	using FR = decltype(std::declval<F>()(std::declval<Point<D, R> >()));
+		"R must satisfy IEC 559.");
 	static_assert(
-		std::is_same<R, FR>::value,
-		"Function must return same floating point type as argument.");
+		IsDistribution<D, R, F>::value,
+		"F must be a valid distribution type (able to take a Point<D, R> to a "
+		"type convertible to R with noexcept).");
 
 	// The reason that we don't store a `Stats` and instead keep all of these
 	// variables separate is because the `prime` and `volatility` measures are
@@ -489,7 +500,7 @@ class CellBuilder final {
 		R explore_vol;
 		// Total tuning volatility of all children.
 		R tune_vol;
-		BranchData() : mean(0), prime(0), explore_vol(0), tune_vol(0) { }
+		BranchData() : mean(0.), prime(0.), explore_vol(0.), tune_vol(0.) { }
 	};
 	struct LeafData final {
 		Stats<R> stats;
@@ -506,9 +517,7 @@ class CellBuilder final {
 	RndL _rnd_left;
 	// The single-cell prime of the cell generator.
 	R _prime_init;
-	R _prime_init_err;
 	R _mean_init;
-	R _mean_init_err;
 	R _scale_exp;
 
 public:
@@ -519,7 +528,7 @@ public:
 	R target_rel_var = 0.01;
 	// The precision (in standard deviations) to which the relative variance
 	// must be reached.
-	R target_rel_var_sigma = 1.5;
+	R target_rel_var_sigma = 1.;
 	// The minimum cell volume (with volume equal to length^d) at which
 	// exploration terminates.
 	R min_cell_length = 0.01;
@@ -530,19 +539,22 @@ public:
 	// Whether to adjust the scaling exponent in response to the behaviour of
 	// the distribution at smaller and smaller scales.
 	bool scale_exp_adjust = true;
-	// Number of past points to consider when adjusting the scaling exponent.
-	std::size_t scale_exp_points = 6;
+	// Number of past points (in logarithmic space) to consider when adjusting
+	// the scaling exponent. For example, a value of 1 means to consider since
+	// there were half as many points, 2 means to consider since there were a
+	// quarter as many points, and so on.
+	R scale_exp_past = 2.5;
 	// The maximum cell volatility needed before exploration can ever terminate
 	// in a cell. Generally, this should be between 0.1 and 1 (usually closely
 	// to 1).
-	R max_cell_explore_vol = 1;
+	R max_cell_explore_vol = 1.;
 	// The minimum cell volatility at which exploration terminates. A larger
 	// value pushes for a more uniform efficiency over the entire generator
 	// including in low-prime cells, where a smaller value will cause
 	// exploration to focus on the high-prime cells.
-	R min_cell_explore_vol = 1;
+	R min_cell_explore_vol = 1.;
 	// Chi-squared needed for a cell division to be triggered.
-	R chi_squared_for_divide = 2;
+	R chi_squared_for_divide = 2.;
 	// Number of bins in edge histograms.
 	std::size_t hist_num_bins = 128;
 	// Minimum number of samples needed per bin before starting cell division.
@@ -552,7 +564,7 @@ public:
 	std::size_t min_cell_explore_samples = 512;
 	std::size_t max_cell_explore_samples = 524288;
 	// Maximum number of cells to create during exploration.
-	std::size_t max_explore_cells = 2*2*2*2*65536;
+	std::size_t max_explore_cells = 1048576;
 	// The accuracy to which to tune within.
 	R tune_rel_accuracy = 0.01;
 	// How many stages to tune. More stages gives slightly better tuning
@@ -587,7 +599,7 @@ private:
 		} else {
 			Stats<R> const& stats = _tree.leaf_data(parent).stats;
 			if (stats.count == 0) {
-				return 0;
+				return 0.;
 			} else {
 				return _tree.leaf_data(parent).stats.est_mean();
 			}
@@ -597,7 +609,7 @@ private:
 	R fill_primes(CellHandle cell) {
 		CellHandle parent = cell;
 		if (_tree.type(parent) == CellType::BRANCH) {
-			_tree.branch_data(parent).prime = 0;
+			_tree.branch_data(parent).prime = 0.;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				CellHandle child = _tree.child(parent, child_idx);
 				_tree.branch_data(parent).prime += fill_primes(child);
@@ -611,7 +623,7 @@ private:
 	R fill_explore_vols(CellHandle cell) {
 		CellHandle parent = cell;
 		if (_tree.type(parent) == CellType::BRANCH) {
-			_tree.branch_data(parent).explore_vol = 0;
+			_tree.branch_data(parent).explore_vol = 0.;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				CellHandle child = _tree.child(parent, child_idx);
 				_tree.branch_data(parent).explore_vol += fill_explore_vols(child);
@@ -625,7 +637,7 @@ private:
 	R fill_tune_vols(CellHandle cell, R prime_total) {
 		CellHandle parent = cell;
 		if (_tree.type(parent) == CellType::BRANCH) {
-			_tree.branch_data(parent).tune_vol = 0;
+			_tree.branch_data(parent).tune_vol = 0.;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				CellHandle child = _tree.child(parent, child_idx);
 				_tree.branch_data(parent).tune_vol += fill_tune_vols(child, prime_total);
@@ -699,7 +711,7 @@ private:
 			#endif
 			return;
 		} else {
-			R volume = 1;
+			R volume = 1.;
 			for (Dim dim = 0; dim < D; ++dim) {
 				volume *= extent[dim];
 			}
@@ -728,13 +740,13 @@ private:
 				// Check termination conditions.
 				Stats<R> stats_total = stats + stats_init;
 				if (stats_total.count >= min_cell_explore_samples) {
-					R prime_err;
 					// We use `stats` instead of `stats_total` for the prime so
 					// that it corresponds with the total statistics registered
 					// in the histogram.
-					R prime = stats.est_prime(&prime_err);
+					R prime = stats.est_prime();
 					R rel_var_err;
 					R rel_var = stats_total.est_rel_var(&rel_var_err);
+					rel_var_err = std::sqrt(rel_var_err);
 
 					// Termination condition 1. Efficiency meets criteria.
 					// First check the cell division volatility. If the ratio is
@@ -744,7 +756,7 @@ private:
 					R cell_vol =
 						std::pow(
 							vol_total / (0.5 * target_rel_var * mean_total),
-							1 / _scale_exp)
+							1. / _scale_exp)
 						* stats_total.est_explore_vol(_scale_exp);
 					// Termination will only be considered if the cell
 					// volatility hits the threshold value. This ensures that no
@@ -778,9 +790,9 @@ private:
 					// Then, the division site that minimizes the new sum of
 					// primes is chosen.
 					if (stats.count >= hist_num_per_bin * hist_num_bins) {
-						R chi_squared = 0;
+						R chi_squared = 0.;
 						R prime_min = std::numeric_limits<R>::max();
-						Dim dim_min = 0;
+						Dim dim_min = 0.;
 						std::size_t bin_min = hist_num_bins / 2;
 						Stats<R> stats_lower_min;
 						Stats<R> stats_upper_min;
@@ -958,7 +970,7 @@ private:
 			// For a branch, estimate the volatility of each child. The samples
 			// will be divided up according to that.
 			R vols[TreeType::NUM_CHILDREN];
-			R vol_total = 0;
+			R vol_total = 0.;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				CellHandle child = _tree.child(cell, child_idx);
 				if (_tree.type(child) == CellType::BRANCH) {
@@ -1019,7 +1031,7 @@ private:
 		} else {
 			// For a leaf, there are no children, so all of the samples will be
 			// uniformly distributed.
-			R volume = 1;
+			R volume = 1.;
 			for (Dim dim = 0; dim < D; ++dim) {
 				volume *= extent[dim];
 			}
@@ -1085,8 +1097,8 @@ public:
 			}
 			stats.update(_func(point));
 		}
-		_prime_init = stats.est_prime(&_prime_init_err);
-		_mean_init = stats.est_mean(&_mean_init_err);
+		_prime_init = stats.est_prime();
+		_mean_init = stats.est_mean();
 		if (!std::isfinite(stats.mean_total)
 				|| !std::isfinite(stats.mom2_total)
 				|| !std::isfinite(stats.mom3_total)
@@ -1107,11 +1119,11 @@ public:
 	// can reach the desired performance. If unable to create a well-balanced
 	// cell generator, returns estimated number of cells that the exploration
 	// process fell short by.
-	std::size_t explore() {
+	std::size_t explore() noexcept {
 		Point<D, R> offset;
 		Point<D, R> extent;
-		offset.fill(0);
-		extent.fill(1);
+		offset.fill(0.);
+		extent.fill(1.);
 		CellHandle root = _tree.root();
 		std::size_t cells;
 		_scale_exp = scale_exp_init;
@@ -1127,13 +1139,16 @@ public:
 			// Adjust the scaling exponent using a linear regression to some
 			// number of previous steps.
 			if (scale_exp_adjust && prev_primes.size() >= 2) {
-				R mean_log_cells = 0;
-				R mean_log_prime = 0;
-				R mean_log_cells_sq = 0;
-				R mean_log_prime_cells = 0;
+				R mean_log_cells = 0.;
+				R mean_log_prime = 0.;
+				R mean_log_cells_sq = 0.;
+				R mean_log_prime_cells = 0.;
 				std::size_t idx_start = 0;
-				if (prev_primes.size() >= scale_exp_points) {
-					idx_start = prev_primes.size() - scale_exp_points;
+				for (std::size_t idx = prev_cells.size(); idx-- > 0; ) {
+					if (std::log2(R(_tree.size()) / prev_cells[idx]) > scale_exp_past) {
+						idx_start = idx;
+						break;
+					}
 				}
 				std::size_t count = prev_primes.size() - idx_start;
 				for (std::size_t idx = idx_start; idx < prev_primes.size(); ++idx) {
@@ -1147,8 +1162,8 @@ public:
 				R scale_exp_target =
 					-(mean_log_prime_cells - mean_log_prime * mean_log_cells)
 					/ (mean_log_cells_sq - sq(mean_log_cells));
-				if (scale_exp_target < 0) {
-					scale_exp_target = 0;
+				if (scale_exp_target < 0.) {
+					scale_exp_target = 0.;
 				}
 				if (!std::isfinite(scale_exp_target)) {
 					scale_exp_target = scale_exp_init;
@@ -1174,9 +1189,9 @@ public:
 		fill_tune_vols(root, prime_total);
 		// Calculate ideal number of cells, and see if we surpassed that number.
 		R ideal_cells = std::pow(
-			std::pow(vol_total, _scale_exp + 1)
+			std::pow(vol_total, _scale_exp + 1.)
 				/ (0.5 * target_rel_var * mean_total),
-			1 / _scale_exp);
+			1. / _scale_exp);
 		if (ideal_cells > R(_tree.size())) {
 			return ideal_cells - _tree.size();
 		} else {
@@ -1187,7 +1202,7 @@ public:
 	// Tunes the cell generator to within some fraction of the ideal efficiency.
 	// If unable to reach the desired efficiency, returns the estimated number
 	// of samples that the tuning process fell short by.
-	std::size_t tune() {
+	std::size_t tune() noexcept {
 		Point<D, R> offset;
 		Point<D, R> extent;
 		offset.fill(0);
@@ -1203,13 +1218,13 @@ public:
 			R vol_total = fill_tune_vols(root, prime_total);
 			// Find the number of samples needed to reach the desired accuracy.
 			R tune_accuracy = target_rel_var * tune_rel_accuracy;
-			R tune_fraction = clamp<R>(R(stage + 1) / tune_num_stages, 0, 1);
+			R tune_fraction = clamp<R>(R(stage + 1) / tune_num_stages, 0., 1.);
 			R samples_real = clamp<R>(
 				tune_fraction * sq(vol_total) / tune_accuracy,
 				// Multiply by 0.5 here so that the process of converting to `R`
 				// won't cause `samples_real` to overflow the maximum possible
 				// value.
-				0, 0.5 * std::numeric_limits<std::size_t>::max());
+				0., 0.5 * std::numeric_limits<std::size_t>::max());
 			std::size_t samples = static_cast<std::size_t>(samples_real);
 			std::size_t max_samples = static_cast<std::size_t>(
 				tune_fraction * max_tune_samples);
@@ -1318,22 +1333,21 @@ template<Dim D, typename R, typename F>
 class CellGenerator final {
 	using Rnd = std::mt19937_64;
 
-	// Return type of the function.
 	static_assert(
 		std::is_floating_point<R>::value,
 		"R must be a floating point type.");
 	static_assert(
 		std::numeric_limits<R>::is_iec559,
-		"R must satisfy IEC 559");
-	using FR = decltype(std::declval<F>()(std::declval<Point<D, R> >()));
+		"R must satisfy IEC 559.");
 	static_assert(
-		std::is_same<R, FR>::value,
-		"Function must return same floating point type as argument.");
+		IsDistribution<D, R, F>::value,
+		"F must be a valid distribution type (able to take a Point<D, R> to a "
+		"type convertible to R with noexcept).");
 
 	// The cells store the prime value.
 	struct Data final {
 		R prime;
-		Data() : prime(0) { }
+		Data() : prime(0.) { }
 		Data(R prime) : prime(prime) { }
 	};
 	using TreeType = Tree<KdBranch<D, R>, Data>;
@@ -1352,7 +1366,7 @@ class CellGenerator final {
 	R fill_primes(CellHandle cell) {
 		CellHandle parent = cell;
 		if (_tree.type(parent) == CellType::BRANCH) {
-			_tree.branch_data(parent).prime = 0;
+			_tree.branch_data(parent).prime = 0.;
 			for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 				CellHandle child = _tree.child(parent, child_idx);
 				_tree.branch_data(parent).prime += fill_primes(child);
@@ -1417,7 +1431,7 @@ public:
 			F func,
 			Seed seed=std::random_device()) :
 			_func(func),
-			_tree(Data{ 1 }),
+			_tree(Data{ 1. }),
 			_rnd() {
 		std::seed_seq seed_seq { seed };
 		_rnd.seed(seed_seq);
@@ -1484,7 +1498,7 @@ public:
 		std::size_t num_cells;
 		file.read(reinterpret_cast<char*>(&num_cells), sizeof(std::size_t));
 		// Read the cells themselves.
-		_tree.clear(Data{ 0 });
+		_tree.clear(Data{ 0. });
 		_tree.reserve(num_cells);
 		std::vector<CellHandle> cells;
 		cells.push_back(_tree.root());
@@ -1503,8 +1517,8 @@ public:
 				_tree.split(
 					cell,
 					typename TreeType::Branch(dim, split),
-					Data(0),
-					{ Data(0), Data(0) });
+					Data(0.),
+					{ Data(0.), Data(0.) });
 				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 					cells.push_back(_tree.child(cell, child_idx));
 				}
@@ -1539,8 +1553,8 @@ public:
 		// Draw from the root cell.
 		Point<D, R> offset;
 		Point<D, R> extent;
-		offset.fill(0);
-		extent.fill(1);
+		offset.fill(0.);
+		extent.fill(1.);
 		select_cell(
 			_tree.root(),
 			offset, extent,
