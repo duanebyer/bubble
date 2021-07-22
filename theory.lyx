@@ -263,6 +263,56 @@ noprefix "false"
 , while any other distribution will result in a lower efficiency.
 \end_layout
 
+\begin_layout Standard
+A related quantity to the efficiency is the relative variance of the weights
+ 
+\begin_inset Formula $\sigma_{w}^{2}$
+\end_inset
+
+.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{equation}
+\sigma_{w}^{2}=\frac{\mathrm{Var}\left[w\left(X\right)\right]}{\mathrm{E}\left[w\left(X\right)\right]^{2}}=\frac{\mathrm{E}\left[w\left(X\right)^{2}\right]}{\mathrm{E}\left[w\left(X\right)\right]^{2}}-1=\frac{1}{\varepsilon^{2}}-1\label{eq:relative-variance-def}
+\end{equation}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+There is a one-to-one relation between 
+\begin_inset Formula $\sigma_{w}^{2}$
+\end_inset
+
+ and 
+\begin_inset Formula $\varepsilon$
+\end_inset
+
+, so that minimizing 
+\begin_inset Formula $\sigma_{w}^{2}$
+\end_inset
+
+ is equivalent to maximizing 
+\begin_inset Formula $\varepsilon$
+\end_inset
+
+.
+ Throughout this paper, we will alternatively use 
+\begin_inset Formula $\sigma_{w}^{2}$
+\end_inset
+
+ or 
+\begin_inset Formula $\varepsilon$
+\end_inset
+
+ depending on which makes the calculations more convenient.
+\end_layout
+
 \begin_layout Section
 Cell generators
 \end_layout
@@ -753,7 +803,7 @@ For finding the optimal prime
 
 \begin_inset Formula 
 \[
-p_{k}^{(0)}=V_{k}\sqrt{\mathrm{E}\left[\overline{R^{2}}\right]}
+p_{k}^{(0)}=V_{k}\sqrt{\mathrm{E}\left[R^{2}\right]}
 \]
 
 \end_inset
@@ -803,7 +853,7 @@ However, this estimator has some bias due to the non-linearity of the square
 \begin_inset Formula $P_{k}^{\mathrm{naive}}$
 \end_inset
 
- to a leading order.
+ to leading order.
 \begin_inset Newline newline
 \end_inset
 
@@ -860,8 +910,8 @@ side will be accurate to order
 
 \begin_inset Formula 
 \begin{align}
-P_{k} & =P_{k}^{\mathrm{naive}}+\frac{1}{8}V_{k}\sqrt{\overline{R^{2}}}\left(\frac{\delta\overline{R^{2}}}{\overline{R^{2}}}\right)^{2}\nonumber \\
- & =V_{k}\sqrt{\overline{R^{2}}}\left(1+\frac{1}{8}\left(\frac{\delta\overline{R^{2}}}{\overline{R^{2}}}\right)^{2}\right)\label{eq:prime-estimator-def}
+P_{k} & =P_{k}^{\mathrm{naive}}+\frac{1}{8N}V_{k}\sqrt{\overline{R^{2}}}\left(\frac{S_{R^{2}}}{\overline{R^{2}}}\right)^{2}\nonumber \\
+ & =V_{k}\sqrt{\overline{R^{2}}}\left(1+\frac{1}{8N}\left(\frac{S_{R^{2}}}{\overline{R^{2}}}\right)^{2}\right)\label{eq:prime-estimator-def}
 \end{align}
 
 \end_inset
@@ -1242,14 +1292,18 @@ For modeling cell division, we will use cells that are
 \end_inset
 
 , will have volumes 
-\begin_inset Formula $V_{A}=\lambda V$
+\begin_inset Formula $V_{A}=\lambda_{A}V$
 \end_inset
 
  and 
-\begin_inset Formula $V_{B}=\left(1-\lambda\right)V$
+\begin_inset Formula $V_{B}=\lambda_{B}V$
 \end_inset
 
-, and new prime values 
+ (with 
+\begin_inset Formula $\lambda_{A}+\lambda_{B}=1$
+\end_inset
+
+), and new prime values 
 \begin_inset Formula $p_{A}^{(0)}$
 \end_inset
 
@@ -1270,7 +1324,7 @@ For modeling cell division, we will use cells that are
 \begin_inset Formula 
 \begin{align*}
 p_{\mathrm{total}}^{(0)} & =p_{A}^{(0)}+p_{B}^{(0)}\\
- & =\sqrt{V_{A}\int_{x_{1}=0}^{\lambda L_{1}}\mathrm{d}x\:\rho\left(x\right)^{2}}+\sqrt{V_{B}\int_{x_{1}=\lambda L_{1}}^{L_{1}}\mathrm{d}x\:\rho\left(x\right)^{2}}
+ & =\sqrt{V_{A}\int_{x_{1}=0}^{\lambda_{A}L_{1}}\mathrm{d}x\:\rho\left(x\right)^{2}}+\sqrt{V_{B}\int_{x_{1}=\lambda_{A}L_{1}}^{L_{1}}\mathrm{d}x\:\rho\left(x\right)^{2}}
 \end{align*}
 
 \end_inset
@@ -1289,8 +1343,12 @@ Of course, in practice the prime values can only be estimated.
 \end_layout
 
 \begin_layout Standard
-Define the marginal variable 
-\begin_inset Formula $R\left(x_{1}\right)$
+Define the split variables 
+\begin_inset Formula $R_{A}$
+\end_inset
+
+ and 
+\begin_inset Formula $R_{B}$
 \end_inset
 
  as
@@ -1299,34 +1357,9 @@ Define the marginal variable
 
 
 \begin_inset Formula 
-\[
-R\left(x_{1}\right)=R\left(x_{1},X_{2},X_{3},\ldots,X_{d}\right)=\rho\left(x_{1},X_{2},X_{3},\ldots,X_{d}\right)
-\]
-
-\end_inset
-
-
-\begin_inset Newline newline
-\end_inset
-
-This is a random variable related to 
-\begin_inset Formula $R$
-\end_inset
-
- by a fixed value of 
-\begin_inset Formula $X_{1}$
-\end_inset
-
-.
- Its expectation values are also related to integrals over the distribution.
-\begin_inset Newline newline
-\end_inset
-
-
-\begin_inset Formula 
 \begin{align*}
-\mathrm{E}\left[R\left(x_{1}\right)\right] & =\frac{L_{1}}{V}\int\mathrm{d}x_{2}\:\mathrm{d}x_{3}\ldots\mathrm{d}x_{d}\:\rho\left(x\right)\\
-\mathrm{E}\left[R\left(x_{1}\right)^{2}\right] & =\frac{L_{1}}{V}\int\mathrm{d}x_{2}\:\mathrm{d}x_{3}\ldots\mathrm{d}x_{d}\:\rho\left(x\right)^{2}
+R_{A} & =\rho\left(X_{A}\right)\\
+R_{B} & =\rho\left(X_{B}\right)
 \end{align*}
 
 \end_inset
@@ -1335,18 +1368,118 @@ This is a random variable related to
 \begin_inset Newline newline
 \end_inset
 
-This allows a simple estimator for 
-\begin_inset Formula $p_{\mathrm{total}}^{(0)}$
+with 
+\begin_inset Formula $X_{A}$
 \end_inset
 
- to be constructed.
+ distributed uniformly over 
+\begin_inset Formula $\Omega_{A}$
+\end_inset
+
+ (the region with 
+\begin_inset Formula $x_{1}<\lambda$
+\end_inset
+
+) and 
+\begin_inset Formula $X_{B}$
+\end_inset
+
+ distributed uniformly over 
+\begin_inset Formula $\Omega_{B}$
+\end_inset
+
+ (the region with 
+\begin_inset Formula $x_{1}>\lambda$
+\end_inset
+
+).
+ The expectation values of these random variables are related to integrals
+ over the distribution.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+\mathrm{E}\left[R_{A}\right] & =\frac{1}{V_{A}}\int_{x_{1}=0}^{\lambda_{A}L_{1}}\mathrm{d}x_{1}\:\mathrm{d}x_{2}\:\mathrm{d}x_{3}\ldots\mathrm{d}x_{d}\:\rho\left(x\right)\\
+\mathrm{E}\left[R_{B}\right] & =\frac{1}{V_{B}}\int_{x_{1}=\lambda_{A}L_{1}}^{L_{1}}\mathrm{d}x_{1}\:\mathrm{d}x_{2}\:\mathrm{d}x_{3}\ldots\mathrm{d}x_{d}\:\rho\left(x\right)
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+This allows a simple estimator for the change in the prime before/after
+ division to be constructed.
+\begin_inset Newline newline
+\end_inset
+
+
+\begin_inset Formula 
+\begin{align*}
+P_{A} & =V\lambda_{A}\sqrt{\overline{R_{A}^{2}}}\left(1+\frac{1}{8N_{A}}\frac{S_{R_{A}^{2}}^{2}}{\overline{R_{A}^{2}}}\right)\\
+P_{B} & =V\lambda_{B}\sqrt{\overline{R_{B}^{2}}}\left(1+\frac{1}{8N_{B}}\frac{S_{R_{B}^{2}}^{2}}{\overline{R_{B}^{2}}}\right)\\
+\Delta P & =P_{A}+P_{B}-P
+\end{align*}
+
+\end_inset
+
+
+\begin_inset Newline newline
+\end_inset
+
+where 
+\begin_inset Formula $N_{A/B}$
+\end_inset
+
+ are the number of samples in the region 
+\begin_inset Formula $\Omega_{A/B}$
+\end_inset
+
+.
+ It is also useful to have the variance of the estimator 
+\begin_inset Formula $\Delta P$
+\end_inset
+
+, assuming that the 
+\begin_inset Formula $N_{A}$
+\end_inset
+
+ and 
+\begin_inset Formula $N_{B}$
+\end_inset
+
+ samples are taken from an initial 
+\begin_inset Formula $N=N_{A}+N_{B}$
+\end_inset
+
+ samples in the original cell, with 
+\begin_inset Formula $N_{A}$
+\end_inset
+
+ and 
+\begin_inset Formula $N_{B}$
+\end_inset
+
+ drawn from a binomial distribution with 
+\begin_inset Formula $\mathrm{E}\left[N_{A}\right]=\lambda_{A}N$
+\end_inset
+
+ and 
+\begin_inset Formula $\mathrm{E}\left[N_{B}\right]=\lambda_{B}N$
+\end_inset
+
+.
+ The calculation is difficult, but the result can be shown to be
 \begin_inset Newline newline
 \end_inset
 
 
 \begin_inset Formula 
 \[
-P_{\mathrm{total}}\left(\lambda\right)=V\left[\lambda\sqrt{\int_{x_{1}=0}^{\lambda L_{1}}\mathrm{d}x_{1}\:\overline{R\left(x_{1}\right)^{2}}}+\left(1-\lambda\right)\sqrt{\int_{x_{1}=\lambda L_{1}}^{L_{1}}\mathrm{d}x_{1}\:\overline{R\left(x_{1}\right)^{2}}}\right]
+\mathrm{Var}\left[\Delta P\right]=\mathrm{Var}\left[P\right]+\mathrm{Var}\left[P_{A}\right]+\mathrm{Var}\left[P_{B}\right]-2\mathrm{Cov}\left[P,P_{A}\right]-2\mathrm{Cov}\left[P,P_{B}\right]
 \]
 
 \end_inset
@@ -1355,13 +1488,31 @@ P_{\mathrm{total}}\left(\lambda\right)=V\left[\lambda\sqrt{\int_{x_{1}=0}^{\lamb
 \begin_inset Newline newline
 \end_inset
 
-This estimator is biased, but will work well enough for the purposes of
- cell division.
- The uncertainty 
-\begin_inset Formula $\delta P_{\mathrm{total}}$
+
+\begin_inset Formula 
+\begin{align*}
+\mathrm{Var}\left[P\right] & =\frac{\mathrm{Var}\left[R\right]}{4N\mathrm{E}\left[R\right]}+\frac{\mathrm{Var}\left[R\right]^{2}}{32N^{2}\mathrm{E}\left[R\right]^{3}}+O\left(\frac{1}{N^{3}}\right)\\
+\mathrm{Var}\left[P_{A}\right] & =\left(\lambda_{A}+\frac{\lambda_{B}}{N}\right)\frac{\mathrm{Var}\left[R_{A}\right]}{4N\mathrm{E}\left[R_{A}\right]}+\frac{\mathrm{Var}\left[R_{A}\right]^{2}}{32N^{2}\mathrm{E}\left[R_{A}\right]^{3}}+O\left(\frac{1}{N^{3}}\right)\\
+\mathrm{Cov}\left[P,P_{A}\right] & =\frac{\lambda_{A}\mathrm{Var}\left[R_{A}\right]}{4N\sqrt{\mathrm{E}\left[R_{A}\right]\mathrm{E}\left[R\right]}}+\frac{\lambda_{A}}{32N^{2}\sqrt{\mathrm{E}\left[R_{A}\right]^{3}\mathrm{E}\left[R\right]^{5}}}\biggl\{\mathrm{Var}\left[R_{A}\right]^{2}\mathrm{E}\left[R\right]\\
+ & \qquad\qquad+4\lambda_{B}\mathrm{Var}\left[R_{A}\right]\mathrm{E}\left[R\right]\mathrm{E}\left[R_{A}\right]\mathrm{E}\left[R_{A}-R_{B}\right]\\
+ & \qquad\qquad-2\lambda_{A}\lambda_{B}\left(\lambda_{A}-\lambda_{B}\right)\mathrm{E}\left[R_{A}\right]^{2}\mathrm{E}\left[R_{A}-R_{B}\right]^{3}\biggr\}+O\left(\frac{1}{N^{3}}\right)
+\end{align*}
+
 \end_inset
 
- can also be easily constructed, and will be reduced with more samples taken.
+
+\begin_inset Newline newline
+\end_inset
+
+There are similar expressions involving 
+\begin_inset Formula $P_{B}$
+\end_inset
+
+ after swapping 
+\begin_inset Formula $A\leftrightarrow B$
+\end_inset
+
+.
 \end_layout
 
 \begin_layout Standard
@@ -1373,17 +1524,9 @@ Then, the goal of cell division is simply to find the minimum value of
 \begin_inset Formula $\lambda$
 \end_inset
 
-, taking into account the error 
-\begin_inset Formula $\delta P_{\mathrm{total}}$
-\end_inset
-
-.
+, taking into account the error.
  If the minimum cannot be determined due to large error, then more samples
- need to be taken until 
-\begin_inset Formula $\delta P_{\mathrm{total}}$
-\end_inset
-
- is small enough.
+ need to be taken until the error is small enough.
  The shape of 
 \begin_inset Formula $P_{\mathrm{total}}$
 \end_inset
@@ -1544,8 +1687,12 @@ This model is motivated from simulations of
 \begin_inset Formula $k$
 \end_inset
 
--d trees is 
-\begin_inset Formula $1.9$
+-d trees is between 
+\begin_inset Formula $1.6$
+\end_inset
+
+ and 
+\begin_inset Formula $2$
 \end_inset
 
 .
