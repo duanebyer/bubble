@@ -3,9 +3,10 @@
 
 #include <array>
 #include <cmath>
-#include <fstream>
 #include <ios>
+#include <istream>
 #include <limits>
+#include <ostream>
 #include <random>
 #include <stdexcept>
 #include <type_traits>
@@ -13,13 +14,29 @@
 
 namespace bubble {
 
-// Identifier used in files.
-constexpr char FILE_HEAD[] = "bubble v. 0.1 file\n";
+// Identifier used in streams.
+constexpr char STREAM_HEAD[] = "bubble v. 0.1 stream\n";
 
 // Some utility functions.
 template<typename T>
 static T sq(T x) {
 	return x * x;
+}
+template<typename T>
+static T pow_inv(T x, T p) {
+	if (p == 0.) {
+		if (x > 1.) {
+			return std::numeric_limits<T>::infinity();
+		} else if (x == 1.) {
+			return 1.;
+		} else if (x >= 0.) {
+			return 0.;
+		} else {
+			return std::numeric_limits<T>::quiet_NaN();
+		}
+	} else {
+		return std::pow(x, 1. / p);
+	}
 }
 template<typename T>
 static T clamp(T x, T min, T max) {
@@ -689,7 +706,7 @@ public:
 	// process.
 
 	// The target relative variance that must be reached in all cells.
-	R target_rel_var = 0.01;
+	R target_rel_var = 0.0001;
 	// The precision (in standard deviations) to which the relative variance
 	// must be reached.
 	R target_rel_var_sigma = 1.;
@@ -724,6 +741,7 @@ public:
 	R min_cell_split_vol = 1.;
 	// Relative error in prime difference for a cell division to be triggered.
 	R prime_diff_rel_err_for_split = 0.4;
+	R flat_prime_diff_err_factor = 0.5;
 	// Number of bins in edge histograms.
 	std::size_t hist_num_bins = 128;
 	// Minimum number of samples needed per bin before starting cell division.
@@ -731,7 +749,7 @@ public:
 	// Minimum and maximum number of samples to be taken in a single cell during
 	// the exploration phase.
 	std::size_t min_cell_explore_samples = 512;
-	std::size_t max_cell_explore_samples = 524288;
+	std::size_t max_cell_explore_samples = 1048576;
 	// Maximum number of cells to create during exploration.
 	std::size_t max_explore_cells = 1048576;
 	// The accuracy to which to tune within.
@@ -902,7 +920,7 @@ private:
 	static R split_vol(Stats<R> const& stats, R scale_exp) {
 		R prime = est_prime(stats);
 		R mean = est_mean(stats);
-		R split_vol = std::pow(prime - mean, 1. / (scale_exp + 1.));
+		R split_vol = pow_inv(prime - mean, scale_exp + 1.);
 		return split_vol;
 	}
 
@@ -1033,6 +1051,8 @@ private:
 			Point<D, R> offset, Point<D, R> extent,
 			// Scaling exponent.
 			R scale_exp,
+			// Number of leafs.
+			std::size_t leafs,
 			// Estimate of total integral of distribution.
 			R mean_tot,
 			// Estimate of split volatility of tree.
@@ -1046,6 +1066,15 @@ private:
 		std::array<std::vector<StatsAccum<R> >, D> hist_stats_accum;
 		for (Dim dim = 0; dim < D; ++dim) {
 			hist_stats_accum[dim].resize(hist_num_bins);
+		}
+		// Find the dimension with the greatest extent.
+		Dim dim_extent_max = 0;
+		R extent_max = 0.;
+		for (Dim dim = 0; dim < D; ++dim) {
+			if (extent[dim] > extent_max) {
+				extent_max = extent[dim];
+				dim_extent_max = dim;
+			}
 		}
 
 		// Create a random number generator (a "right" generator) which will be
@@ -1067,9 +1096,6 @@ private:
 			Stats<R> stats = stats_accum.total();
 			Stats<R> stats_tot = stats + stats_init;
 			if (stats_tot.count() >= min_cell_explore_samples) {
-				// We use `stats` instead of `stats_tot` for the prime so that
-				// it corresponds with the total statistics stored in the
-				// histogram.
 				R rel_var_err;
 				R rel_var = est_rel_var(stats_tot, &rel_var_err);
 
@@ -1079,15 +1105,19 @@ private:
 				// met the target accounting for uncertainty (and if so, then
 				// terminate).
 				R cell_split_vol =
-					std::pow(
-						split_vol_tot / (0.5 * target_rel_var * mean_tot),
-						1. / scale_exp)
+					pow_inv(
+						clamp_above<R>(
+							split_vol_tot / (0.5 * target_rel_var * mean_tot)),
+						scale_exp)
 					* split_vol(stats_tot, scale_exp);
 				// Termination will only be considered if the cell volatility
 				// is below the threshold value. This ensures that no matter
 				// what other termination conditions are considered, the final
-				// cell generator will have good efficiency.
-				if (cell_split_vol < max_cell_split_vol) {
+				// cell generator will have good efficiency. Note that we
+				// additionally require that the total mean is non-zero. If the
+				// total mean is zero, then all cells are required to divide in
+				// hopes of measuring a non-zero mean eventually.
+				if (mean_tot != 0. && cell_split_vol < max_cell_split_vol) {
 					R rel_var_max =
 						rel_var + target_rel_var_sigma * rel_var_err;
 					// Three possibilities for terminating:
@@ -1110,14 +1140,17 @@ private:
 				}
 
 				// Termination condition 2. Cell division.
-				// For cell division to occur, the edge histograms must be
-				// different enough (by chi-squared test) from constant. Then,
-				// the division site that minimizes the new sum of primes is
-				// chosen.
 				if (stats.count() >= hist_num_per_bin * hist_num_bins) {
+					// Store the stats for a half-way division along the
+					// dimension with greatest extent, just in case the cell is
+					// too flat to choose a division site in any better way.
+					Stats<R> stats_lower_half;
+					Stats<R> stats_upper_half;
+					// Find the division site with the greatest reduction in
+					// overall prime value.
 					R prime_diff_min = std::numeric_limits<R>::max();
 					R prime_diff_err_min = 0.;
-					Dim dim_min = 0;
+					Dim dim_min = dim_extent_max;
 					std::size_t bin_min = hist_num_bins / 2;
 					Stats<R> stats_lower_min;
 					Stats<R> stats_upper_min;
@@ -1144,6 +1177,14 @@ private:
 							stats_upper_tot += hist_stats[rbin];
 							hist_stats_lower.push_back(stats_lower_tot);
 							hist_stats_upper.push_back(stats_upper_tot);
+						}
+						// Store the statistics for a half-way division.
+						if (dim == dim_extent_max) {
+							std::size_t bin = hist_num_bins / 2;
+							std::size_t bin_lower = bin - 1;
+							std::size_t bin_upper = hist_num_bins - bin - 1;
+							stats_lower_half = hist_stats_lower[bin_lower];
+							stats_upper_half = hist_stats_upper[bin_upper];
 						}
 						// Test division at each internal bin boundary.
 						for (std::size_t bin = 1; bin < hist_num_bins; ++bin) {
@@ -1184,12 +1225,19 @@ private:
 					// many samples have been requested, then make a division.
 					R prime_diff_err_req = std::abs(
 						prime_diff_rel_err_for_split * prime_diff_min);
+					R flat_prime_diff_err_req = 0.5 * flat_prime_diff_err_factor
+						* mean_tot * target_rel_var / std::sqrt(leafs);
 					bool err_cond = (prime_diff_err_min <= prime_diff_err_req);
 					bool sample_cond = (stats.count() >= max_cell_explore_samples);
-					bool flat_cond = (prime_diff_err_req >= -prime_diff_min);
+					bool flat_cond = (flat_prime_diff_err_req >= -prime_diff_min);
 					if (err_cond || sample_cond || flat_cond) {
-						// TODO: If flat condition satisfied, it really should
-						// be split in the center of the cell.
+						// TODO: Include a user-defined factor here.
+						if (std::abs(prime_diff_min) <= prime_diff_err_min) {
+							dim_min = dim_extent_max;
+							bin_min = hist_num_bins / 2;
+							stats_lower_min = stats_lower_half;
+							stats_upper_min = stats_upper_half;
+						}
 						R lambda_lower = R(bin_min) / hist_num_bins;
 						R lambda_upper = R(hist_num_bins - bin_min) / hist_num_bins;
 						LeafData leaf_data[2] = {
@@ -1252,6 +1300,7 @@ private:
 			CellHandle cell,
 			Point<D, R> offset, Point<D, R> extent,
 			R scale_exp,
+			std::size_t leafs,
 			R mean_tot,
 			R split_vol_tot) {
 		CellType type;
@@ -1287,7 +1336,7 @@ private:
 				explore_cell(
 					child[child_idx],
 					offset_child, extent_child,
-					scale_exp, mean_tot, split_vol_tot);
+					scale_exp, leafs, mean_tot, split_vol_tot);
 			}
 		} else {
 			#ifdef BUBBLE_USE_OPENMP
@@ -1298,7 +1347,7 @@ private:
 					cell,
 					stats_init,
 					offset, extent,
-					scale_exp, mean_tot, split_vol_tot);
+					scale_exp, leafs, mean_tot, split_vol_tot);
 			}
 		}
 	}
@@ -1484,6 +1533,10 @@ public:
 			R prime_tot = prime(root);
 			R split_vol_tot = split_vol(root, _scale_exp);
 			std::size_t leafs = _tree.leaf_size();
+			// TODO: I've been using this to log behaviour of the exploration
+			// process, so I'll shamelessly leave it in here until proper
+			// progress evaluation is in place.
+			//std::cout << "Status: " << leafs << ", " << prime_tot << ", " << mean_tot << std::endl;
 			_prev_primes.push_back(prime_tot);
 			_prev_leafs.push_back(leafs);
 			// Adjust the scaling exponent using a linear regression to some
@@ -1531,15 +1584,16 @@ public:
 				explore_cell(
 					root,
 					offset, extent,
-					_scale_exp, mean_tot, split_vol_tot);
+					_scale_exp, leafs, mean_tot, split_vol_tot);
 			}
+			// TODO: Termination conditions should be revised.
 		} while (cells != _tree.size() && _tree.size() < max_explore_cells);
 		update_total_stats();
 		// Calculate ideal number of leaf cells, and see if we surpassed it.
-		R ideal_leafs = std::pow(
+		R ideal_leafs = pow_inv(
 			std::pow(_split_vol, _scale_exp + 1.)
 				/ (0.5 * target_rel_var * _mean),
-			1. / _scale_exp);
+			_scale_exp);
 		if (ideal_leafs > R(_tree.leaf_size())) {
 			return ideal_leafs - _tree.leaf_size();
 		} else {
@@ -1599,28 +1653,28 @@ public:
 		return undertuned_samples;
 	}
 
-	// Writes to file. A `CellBuilder` can be written to, but not read from, a
-	// file. It reduces all of the statistics known about the distribution down
-	// to a minimal set of data that can be constructed by a `CellGenerator`.
-	void write(char const* file_name) const {
-		std::ofstream file(file_name, std::ios::binary);
+	// Writes to an output stream. A `CellBuilder` can be written to, but not
+	// read from, a stream. It reduces all of the statistics known about the
+	// distribution down to a minimal set of data that can be constructed by a
+	// `CellGenerator`.
+	void write(std::ostream& os) const {
 		// Write identification string.
-		file.write(FILE_HEAD, sizeof(FILE_HEAD));
+		os.write(STREAM_HEAD, sizeof(STREAM_HEAD));
 		// Write sizes of important types, just as a quick validation.
 		std::size_t size_size_t = sizeof(std::size_t);
 		std::size_t size_tag = sizeof(unsigned char);
 		std::size_t size_dim = sizeof(Dim);
 		std::size_t size_split = sizeof(R);
 		std::size_t size_prime = sizeof(R);
-		file.write(reinterpret_cast<char const*>(&size_size_t), sizeof(std::size_t));
-		file.write(reinterpret_cast<char const*>(&size_tag), sizeof(std::size_t));
-		file.write(reinterpret_cast<char const*>(&size_dim), sizeof(std::size_t));
-		file.write(reinterpret_cast<char const*>(&size_split), sizeof(std::size_t));
-		file.write(reinterpret_cast<char const*>(&size_prime), sizeof(std::size_t));
+		os.write(reinterpret_cast<char const*>(&size_size_t), sizeof(std::size_t));
+		os.write(reinterpret_cast<char const*>(&size_tag), sizeof(std::size_t));
+		os.write(reinterpret_cast<char const*>(&size_dim), sizeof(std::size_t));
+		os.write(reinterpret_cast<char const*>(&size_split), sizeof(std::size_t));
+		os.write(reinterpret_cast<char const*>(&size_prime), sizeof(std::size_t));
 		// Write total number of cells.
 		std::size_t num_cells = _tree.size();
-		file.write(reinterpret_cast<char const*>(&num_cells), sizeof(std::size_t));
-		if (!file) {
+		os.write(reinterpret_cast<char const*>(&num_cells), sizeof(std::size_t));
+		if (!os) {
 			throw std::runtime_error("failed to write header info");
 		}
 		std::vector<CellHandle> cells;
@@ -1635,9 +1689,9 @@ public:
 				// * Split dimension (unsigned char).
 				// * Split location (real).
 				unsigned char tag = 0;
-				file.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
-				file.write(reinterpret_cast<char const*>(&branch.dim), sizeof(Dim));
-				file.write(reinterpret_cast<char const*>(&branch.split), sizeof(R));
+				os.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
+				os.write(reinterpret_cast<char const*>(&branch.dim), sizeof(Dim));
+				os.write(reinterpret_cast<char const*>(&branch.split), sizeof(R));
 				// Add branch children to be processed next, in order.
 				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
 					cells.push_back(_tree.child(cell, child_idx));
@@ -1648,10 +1702,10 @@ public:
 				// * Prime (integration real).
 				unsigned char tag = 1;
 				R prime = est_prime(_tree.leaf_data(cell).stats);
-				file.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
-				file.write(reinterpret_cast<char const*>(&prime), sizeof(R));
+				os.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
+				os.write(reinterpret_cast<char const*>(&prime), sizeof(R));
 			}
-			if (!file) {
+			if (!os) {
 				throw std::runtime_error("failed to write cell");
 			}
 		}
@@ -1825,14 +1879,13 @@ public:
 		}
 	}
 
-	// Reads from a file.
-	void read(char const* file_name) {
-		std::ifstream file(file_name, std::ios::binary);
+	// Reads from an input stream.
+	void read(std::istream& is) {
 		// Read identifier string.
-		char head[sizeof(FILE_HEAD)];
-		file.read(head, sizeof(FILE_HEAD));
-		for(std::size_t idx = 0; idx < sizeof(FILE_HEAD); ++idx) {
-			if (head[idx] != FILE_HEAD[idx]) {
+		char head[sizeof(STREAM_HEAD)];
+		is.read(head, sizeof(STREAM_HEAD));
+		for(std::size_t idx = 0; idx < sizeof(STREAM_HEAD); ++idx) {
+			if (head[idx] != STREAM_HEAD[idx]) {
 				throw std::runtime_error("File header mismatch");
 			}
 		}
@@ -1844,14 +1897,14 @@ public:
 		std::size_t size_prime;
 		// `std::size_t` is especially important because the sizes themselves
 		// are of that size.
-		file.read(reinterpret_cast<char*>(&size_size_t), sizeof(std::size_t));
+		is.read(reinterpret_cast<char*>(&size_size_t), sizeof(std::size_t));
 		if (size_size_t != sizeof(std::size_t)) {
 			throw std::runtime_error("std::size_t size mismatch");
 		}
-		file.read(reinterpret_cast<char*>(&size_tag), sizeof(std::size_t));
-		file.read(reinterpret_cast<char*>(&size_dim), sizeof(std::size_t));
-		file.read(reinterpret_cast<char*>(&size_split), sizeof(std::size_t));
-		file.read(reinterpret_cast<char*>(&size_prime), sizeof(std::size_t));
+		is.read(reinterpret_cast<char*>(&size_tag), sizeof(std::size_t));
+		is.read(reinterpret_cast<char*>(&size_dim), sizeof(std::size_t));
+		is.read(reinterpret_cast<char*>(&size_split), sizeof(std::size_t));
+		is.read(reinterpret_cast<char*>(&size_prime), sizeof(std::size_t));
 		if (size_tag != sizeof(unsigned char)) {
 			throw std::runtime_error("unsigned char size mismatch");
 		} else if (size_dim != sizeof(Dim)) {
@@ -1863,8 +1916,8 @@ public:
 		}
 		// Read number of cells.
 		std::size_t num_cells;
-		file.read(reinterpret_cast<char*>(&num_cells), sizeof(std::size_t));
-		if (!file) {
+		is.read(reinterpret_cast<char*>(&num_cells), sizeof(std::size_t));
+		if (!is) {
 			throw std::runtime_error("failed to read header info");
 		}
 		// Read the cells themselves.
@@ -1873,17 +1926,17 @@ public:
 		std::vector<CellHandle> cells;
 		cells.push_back(_tree.root());
 		while (!cells.empty()) {
-			// Read the next cell from the file.
+			// Read the next cell from the stream.
 			CellHandle cell = cells.back();
 			cells.pop_back();
 			unsigned char tag;
-			file.read(reinterpret_cast<char*>(&tag), sizeof(unsigned char));
+			is.read(reinterpret_cast<char*>(&tag), sizeof(unsigned char));
 			if (tag == 0) {
 				// Branch.
 				Dim dim;
 				R split;
-				file.read(reinterpret_cast<char*>(&dim), sizeof(Dim));
-				file.read(reinterpret_cast<char*>(&split), sizeof(R));
+				is.read(reinterpret_cast<char*>(&dim), sizeof(Dim));
+				is.read(reinterpret_cast<char*>(&split), sizeof(R));
 				_tree.split(
 					cell,
 					typename TreeType::Branch(dim, split),
@@ -1895,19 +1948,19 @@ public:
 			} else if (tag == 1) {
 				// Leaf.
 				R prime;
-				file.read(reinterpret_cast<char*>(&prime), sizeof(R));
+				is.read(reinterpret_cast<char*>(&prime), sizeof(R));
 				_tree.leaf_data(cell).prime = prime;
 			} else {
 				throw std::runtime_error("invalid tag");
 			}
-			if (!file) {
+			if (!is) {
 				throw std::runtime_error("failed to read cell");
 			}
 		}
 		if (_tree.size() > num_cells) {
 			throw std::runtime_error("wrong number of cells");
 		}
-		if (file.peek() != std::ifstream::traits_type::eof()) {
+		if (is.peek() != std::ifstream::traits_type::eof()) {
 			throw std::runtime_error("expected EOF");
 		}
 		fill_primes(_tree.root());

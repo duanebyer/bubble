@@ -1,4 +1,5 @@
 #include <cmath>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <random>
@@ -87,7 +88,8 @@ void build_bubble(int func_index, char const* file_name) {
 	std::cout << "Est. rel. var.: " << rel_var
 		<< " ± " << rel_var_err / rel_var * 100. << "%" << std::endl;
 	std::cout << "Writing to file: " << file_name << std::endl;
-	builder.write(file_name);
+	std::ofstream file(file_name, std::ios::binary);
+	builder.write(file);
 }
 
 template<typename T>
@@ -113,7 +115,8 @@ void analyze_weights(Real prime, std::vector<T> const& weights) {
 void generate_bubble(int func_index, char const* file_name, std::size_t samples) {
 	auto generator = bubble::make_generator<DIM, Real>(funcs[func_index]);
 	std::cout << "Reading from file: " << file_name << std::endl;
-	generator.read(file_name);
+	std::ifstream file(file_name, std::ios::binary);
+	generator.read(file);
 	std::vector<Real> weights;
 	std::cout << "Generating." << std::endl;
 	for (std::size_t sample = 0; sample < samples; ++sample) {
@@ -142,7 +145,7 @@ void build_foam(int func_index, char const* file_name) {
 	foam->SetRho(&func);
 	foam->SetPseRan(random);
 	foam->SetnSampl(1024);
-	foam->SetnCells(500000);
+	foam->SetnCells(100000);
 	foam->SetOptRej(0);
 	foam->SetOptDrive(1);
 	foam->Initialize();
@@ -267,18 +270,22 @@ Real func_waves(bubble::Point<DIM, Real> x) noexcept {
 	return result;
 }
 Real func_peak(bubble::Point<DIM, Real> x) noexcept {
+	Real width = 0.1;
 	Real r2 = 0;
 	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
 		r2 += (x[dim] - 0.5) * (x[dim] - 0.5);
 	}
-	return std::exp(-r2 / (2 * 0.1 * 0.1));
+	Real norm = std::pow(std::sqrt(2. * PI) * width, DIM);
+	return std::exp(-r2 / (2 * width * width)) / norm;
 }
 Real func_peak_sharp(bubble::Point<DIM, Real> x) noexcept {
+	Real width = 0.001;
 	Real r2 = 0;
 	for (bubble::Dim dim = 0; dim < DIM; ++dim) {
 		r2 += (x[dim] - 0.5) * (x[dim] - 0.5);
 	}
-	return std::exp(-r2 / (2 * 0.001 * 0.001));
+	Real norm = std::pow(std::sqrt(2. * PI) * width, DIM);
+	return std::exp(-r2 / (2 * width * width)) / norm;
 }
 Real func_random(bubble::Point<DIM, Real> x) noexcept {
 	// Use x as a seed for a random number generator.
