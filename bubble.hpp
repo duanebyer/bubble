@@ -1845,7 +1845,7 @@ public:
 	// Creates a `CellGenerator` for use with a specific distribution.
 	CellGenerator(
 			F func,
-			Seed seed=std::random_device()) :
+			Seed seed=std::random_device()()) :
 			_func(func),
 			_tree(Data{ 1. }),
 			_rnd() {
