@@ -1965,7 +1965,7 @@ public:
 		if (_tree.size() > num_cells) {
 			throw std::runtime_error("wrong number of cells");
 		}
-		if (is.peek() != std::ifstream::traits_type::eof()) {
+		if (is.peek() != std::istream::traits_type::eof()) {
 			throw std::runtime_error("expected EOF");
 		}
 		fill_primes(_tree.root());
