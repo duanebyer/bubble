@@ -17,21 +17,21 @@ target_include_directories(bubble INTERFACE ".")
 find_package(ROOT 6.16 REQUIRED COMPONENTS Core Foam CONFIG)
 find_package(OpenMP 3.0)
 
-add_executable(test test.cpp)
+add_executable(example example.cpp)
 if(${OpenMP_FOUND})
-	target_compile_definitions(test PRIVATE BUBBLE_USE_OPENMP)
+	target_compile_definitions(example PRIVATE BUBBLE_USE_OPENMP)
 	if(${CMAKE_VERSION} VERSION_LESS "3.9.0")
-		target_link_libraries(test PRIVATE "${OpenMP_CXX_FLAGS}")
-		target_compile_options(test PRIVATE "${OpenMP_CXX_FLAGS}")
+		target_link_libraries(example PRIVATE "${OpenMP_CXX_FLAGS}")
+		target_compile_options(example PRIVATE "${OpenMP_CXX_FLAGS}")
 	else()
-		target_link_libraries(test PRIVATE OpenMP::OpenMP_CXX)
+		target_link_libraries(example PRIVATE OpenMP::OpenMP_CXX)
 	endif()
 endif()
-target_link_libraries(test PRIVATE bubble ROOT::Core ROOT::Foam)
-target_compile_features(test PRIVATE cxx_std_11)
-set_target_properties(test PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(example PRIVATE bubble ROOT::Core ROOT::Foam)
+target_compile_features(example PRIVATE cxx_std_11)
+set_target_properties(example PROPERTIES CXX_EXTENSIONS OFF)
 target_compile_options(
-	test
+	example
 	PRIVATE
 	$<$<OR:$<CXX_COMPILER_ID:AppleClang>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>>:-Wall -Wextra -pedantic>
 	$<$<CXX_COMPILER_ID:MSVC>:/W4>)
