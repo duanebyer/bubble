@@ -361,6 +361,11 @@ public:
 			_count(1) {
 		_mom.fill(1.);
 	}
+	// Builds a statistics from aggregate information.
+	Stats(std::array<R, NUM_MOMS> mom_to_max, R max, std::size_t count) :
+		_mom(mom_to_max),
+		_max(max),
+		_count(count) { }
 
 	Stats<R>& operator+=(Stats<R> const& rhs) {
 		// Get relative contributions from each statistics.
