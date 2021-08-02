@@ -1877,12 +1877,6 @@ public:
 		fill_primes(_tree.root());
 	}
 
-<<<<<<< HEAD
-=======
-	F& func() {
-		return _func;
-	}
->>>>>>> 42b6e5892288615782dc81a4fd8b8c209dbbc7cd
 	F const& func() const {
 		return _func;
 	}
