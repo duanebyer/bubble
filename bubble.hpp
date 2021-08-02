@@ -1520,6 +1520,10 @@ public:
 		update_total_stats();
 	}
 
+	F const& func() const {
+		return _func;
+	}
+
 	// Explores the distribution to create a well-balanced cell generator that
 	// can reach the desired performance. If unable to create a well-balanced
 	// cell generator, returns estimated number of cells that the exploration
@@ -1871,6 +1875,10 @@ public:
 		std::seed_seq seed_seq { seed };
 		_rnd.seed(seed_seq);
 		fill_primes(_tree.root());
+	}
+
+	F const& func() const {
+		return _func;
 	}
 
 	// Returns the prime value. This can be combined with the weights to
