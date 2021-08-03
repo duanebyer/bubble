@@ -693,6 +693,8 @@ class CellBuilder final {
 	TreeType _tree;
 	// Random number engine.
 	RndL _rnd_left;
+	// Whether the distribution function has been checked.
+	bool _checked;
 	// Persistent state for updating scaling exponent while building.
 	R _scale_exp;
 	std::vector<R> _prev_primes;
@@ -764,6 +766,8 @@ public:
 	std::size_t tune_num_stages = 10;
 	// Maximum number of samples to be taken total in the tuning phase.
 	std::size_t max_tune_samples = 268435456;
+	// Number of samples when doing the initial check of the distribution.
+	std::size_t check_samples=16384;
 
 private:
 	// Gets a seed from the left generator.
@@ -1470,14 +1474,27 @@ private:
 public:
 	CellBuilder(
 			F func,
-			std::size_t init_samples=16384,
 			Seed seed=std::random_device()()) :
 			_func(func),
 			_tree(LeafData()),
-			_rnd_left() {
+			_rnd_left(),
+			_checked(false) {
 		// Seed the left generator.
 		std::seed_seq seed_seq { seed };
 		_rnd_left.seed(seed_seq);
+	}
+
+	F const& func() const {
+		return _func;
+	}
+
+	// Validates the distribution function by sampling some number of points
+	// uniformly over the entire unit hypercube.
+	void check() {
+		if (_checked) {
+			return;
+		}
+		_checked = true;
 		// Sample a new generator for initialization.
 		std::vector<Seed> seed_right = sample_rnd_left();
 		std::seed_seq seed_seq_right(seed_right.begin(), seed_right.end());
@@ -1487,7 +1504,7 @@ public:
 		// catch some common errors.
 		CellHandle root = _tree.root();
 		StatsAccum<R> stats_accum;
-		for (std::size_t sample = 0; sample < init_samples; ++sample) {
+		for (std::size_t sample = 0; sample < check_samples; ++sample) {
 			// Assuming a volume of 1 for the unit hypercube.
 			Point<D, R> point;
 			for (Dim dim = 0; dim < D; ++dim) {
@@ -1516,12 +1533,14 @@ public:
 				"distribution invalid because cannot be distinguished from "
 				"zero");
 		}
-		_tree.leaf_data(root).stats = stats;
-		update_total_stats();
-	}
-
-	F const& func() const {
-		return _func;
+		// If the root cell is the only cell, then insert the stats into it.
+		// This should always be the case, since the `explore` function calls
+		// `check` before starting to divide up the root cell, but this check is
+		// here just in case.
+		if (_tree.type(root) == CellType::LEAF) {
+			_tree.leaf_data(root).stats = stats;
+			update_total_stats();
+		}
 	}
 
 	// Explores the distribution to create a well-balanced cell generator that
@@ -1529,6 +1548,10 @@ public:
 	// cell generator, returns estimated number of cells that the exploration
 	// process fell short by.
 	std::size_t explore() noexcept {
+		// Make sure that we have some basic validation of the distribution.
+		if (!_checked) {
+			check();
+		}
 		Point<D, R> offset;
 		Point<D, R> extent;
 		offset.fill(0.);
@@ -2004,9 +2027,8 @@ public:
 template<Dim D, typename R, typename F>
 inline CellBuilder<D, R, F> make_builder(
 		F func,
-		std::size_t init_samples=16384,
 		Seed seed=std::random_device()()) {
-	return CellBuilder<D, R, F>(func, init_samples, seed);
+	return CellBuilder<D, R, F>(func, seed);
 }
 template<Dim D, typename R, typename F>
 inline CellGenerator<D, R, F> make_generator(
