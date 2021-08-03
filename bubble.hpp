@@ -713,7 +713,7 @@ public:
 	// process.
 
 	// The target relative variance that must be reached in all cells.
-	R target_rel_var = 0.0001;
+	R target_rel_var = 0.05;
 	// The precision (in standard deviations) to which the relative variance
 	// must be reached.
 	R target_rel_var_sigma = 1.;
