@@ -1069,7 +1069,7 @@ private:
 			// Estimate of total integral of distribution.
 			R mean_tot,
 			// Estimate of split volatility of tree.
-			R split_vol_tot) {
+			R split_vol_tot) noexcept {
 		R volume = 1.;
 		for (Dim dim = 0; dim < D; ++dim) {
 			volume *= extent[dim];
@@ -1315,7 +1315,7 @@ private:
 			R scale_exp,
 			std::size_t leafs,
 			R mean_tot,
-			R split_vol_tot) {
+			R split_vol_tot) noexcept {
 		CellType type;
 		Point<D, R> offset_local[TreeType::NUM_CHILDREN];
 		Point<D, R> extent_local[TreeType::NUM_CHILDREN];
@@ -1376,7 +1376,7 @@ private:
 			// Total tuning volatility of the generator.
 			R tune_vol_tot,
 			// Number of samples to use for estimating the prime.
-			std::size_t samples) {
+			std::size_t samples) noexcept {
 		R volume = 1.;
 		for (Dim dim = 0; dim < D; ++dim) {
 			volume *= extent[dim];
@@ -1424,7 +1424,7 @@ private:
 			Point<D, R> offset, Point<D, R> extent,
 			R prime_tot,
 			R tune_vol_tot,
-			std::size_t samples) {
+			std::size_t samples) noexcept {
 		CellType type;
 		Point<D, R> offset_local[TreeType::NUM_CHILDREN];
 		Point<D, R> extent_local[TreeType::NUM_CHILDREN];
@@ -1551,7 +1551,7 @@ public:
 	// can reach the desired performance. If unable to create a well-balanced
 	// cell generator, returns estimated number of cells that the exploration
 	// process fell short by.
-	std::size_t explore() noexcept {
+	std::size_t explore() {
 		// Make sure that we have some basic validation of the distribution.
 		if (!_checked) {
 			check();
@@ -1640,7 +1640,7 @@ public:
 	// Tunes the cell generator to within some fraction of the ideal efficiency.
 	// If unable to reach the desired efficiency, returns the estimated number
 	// of samples that the tuning process fell short by.
-	std::size_t tune() noexcept {
+	std::size_t tune() {
 		Point<D, R> offset;
 		Point<D, R> extent;
 		offset.fill(0);
