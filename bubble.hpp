@@ -1926,7 +1926,7 @@ public:
 		is.read(head, sizeof(STREAM_HEAD));
 		for(std::size_t idx = 0; idx < sizeof(STREAM_HEAD); ++idx) {
 			if (head[idx] != STREAM_HEAD[idx]) {
-				throw std::runtime_error("File header mismatch");
+				throw std::runtime_error("file header mismatch");
 			}
 		}
 		// Read important data sizes.
