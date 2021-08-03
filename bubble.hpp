@@ -767,7 +767,7 @@ public:
 	// Maximum number of samples to be taken total in the tuning phase.
 	std::size_t max_tune_samples = 268435456;
 	// Number of samples when doing the initial check of the distribution.
-	std::size_t check_samples=16384;
+	std::size_t check_samples = 16384;
 
 private:
 	// Gets a seed from the left generator.
