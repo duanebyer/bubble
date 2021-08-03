@@ -748,6 +748,10 @@ public:
 	R min_cell_split_vol = 1.;
 	// Relative error in prime difference for a cell division to be triggered.
 	R prime_diff_rel_err_for_split = 0.4;
+	// A factor related to how much of an improvement to the prime is worth
+	// finding the best possible spot to split a cell. Typically should be
+	// smaller than one. Smaller values mean better quality splits are chosen,
+	// at the cost of more samples per cell.
 	R flat_prime_diff_err_factor = 0.5;
 	// Number of bins in edge histograms.
 	std::size_t hist_num_bins = 128;
