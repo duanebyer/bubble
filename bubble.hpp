@@ -664,6 +664,26 @@ public:
 	}
 };
 
+// Types associated with `CellBuilder` that are used as callbacks for status
+// updates during long-running `explore` and `tune` methods.
+template<typename R>
+struct ExploreProgress final {
+	R progress;
+};
+template<typename R>
+struct ExploreProgressReporter {
+	virtual void operator()(ExploreProgress<R> progress) const = 0;
+};
+
+template<typename R>
+struct TuneProgress final {
+	R progress;
+};
+template<typename R>
+struct TuneProgressReporter {
+	virtual void operator()(TuneProgress<R> progress) const = 0;
+};
+
 template<Dim D, typename R, typename F>
 class CellBuilder final {
 	template<Dim D1, typename R1, typename F1>
@@ -700,7 +720,7 @@ class CellBuilder final {
 	RndL _rnd_left;
 	// Whether the distribution function has been checked.
 	bool _checked;
-	// Persistent state for updating scaling exponent while building.
+	// Persistent state for estimating scaling exponent while building.
 	R _scale_exp;
 	std::vector<R> _prev_primes;
 	std::vector<std::size_t> _prev_leafs;
@@ -728,7 +748,7 @@ public:
 	// An exponent related to how quickly the efficiency increases with more
 	// cell divisions. It depends on the type of tree and the underlying
 	// distribution. Empirically, lies between 0.5 and 2.0 for most functions.
-	R scale_exp_init = 1.5;
+	R scale_exp_est = 1.5;
 	// Whether to adjust the scaling exponent in response to the behaviour of
 	// the distribution at smaller and smaller scales.
 	bool scale_exp_adjust = false;
@@ -772,11 +792,15 @@ public:
 	R tune_rel_accuracy = 0.01;
 	// How many stages to tune. More stages gives slightly better tuning
 	// performance.
-	std::size_t tune_num_stages = 10;
+	std::size_t tune_num_stages = 64;
 	// Maximum number of samples to be taken total in the tuning phase.
 	std::size_t max_tune_samples = 268435456;
 	// Number of samples when doing the initial check of the distribution.
 	std::size_t check_samples = 16384;
+
+	// Progress reporters.
+	ExploreProgressReporter<R> const* explore_progress_reporter;
+	TuneProgressReporter<R> const* tune_progress_reporter;
 
 private:
 	// Gets a seed from the left generator.
@@ -935,10 +959,10 @@ private:
 
 	// Calculate the split volatility, a number indicating how much of an impact
 	// splitting a cell has on the overall efficiency of the generator.
-	static R split_vol(Stats<R> const& stats, R scale_exp) {
+	static R split_vol(Stats<R> const& stats, R scale_exp_est) {
 		R prime = est_prime(stats);
 		R mean = est_mean(stats);
-		R split_vol = pow_inv(prime - mean, scale_exp + 1.);
+		R split_vol = pow_inv(prime - mean, scale_exp_est + 1.);
 		return split_vol;
 	}
 
@@ -1116,7 +1140,9 @@ private:
 			if (stats_tot.count() >= min_cell_explore_samples) {
 				R rel_var_err;
 				R rel_var = est_rel_var(stats_tot, &rel_var_err);
-				R target_prime = mean_tot * sqrt1p_1m(target_rel_var);
+				// The target prime (given directly by the target relative
+				// variance), with the mean subtracted from it.
+				R target_prime_diff = mean_tot * sqrt1p_1m(target_rel_var);
 
 				// Termination condition 1. Efficiency meets criteria.
 				// First check the cell division volatility. If the ratio is
@@ -1125,7 +1151,7 @@ private:
 				// terminate).
 				R cell_split_vol =
 					pow_inv(
-						clamp_above<R>(split_vol_tot / target_prime),
+						clamp_above<R>(split_vol_tot / target_prime_diff),
 						scale_exp)
 					* split_vol(stats_tot, scale_exp);
 				// Termination will only be considered if the cell volatility
@@ -1244,7 +1270,7 @@ private:
 					R prime_diff_err_req = std::abs(
 						prime_diff_rel_err_for_split * prime_diff_min);
 					R flat_prime_diff_err_req = flat_prime_diff_err_factor
-						* target_prime / std::sqrt(leafs);
+						* target_prime_diff / std::sqrt(leafs);
 					bool err_cond = (prime_diff_err_min <= prime_diff_err_req);
 					bool sample_cond = (stats.count() >= max_cell_explore_samples);
 					bool flat_cond = (flat_prime_diff_err_req >= -prime_diff_min);
@@ -1482,12 +1508,20 @@ private:
 
 public:
 	CellBuilder(
+		F func,
+		Seed seed=std::random_device()()) :
+		CellBuilder(func, nullptr, nullptr, seed) { }
+	CellBuilder(
 			F func,
+			ExploreProgressReporter<R> const* explore_progress_reporter,
+			TuneProgressReporter<R> const* tune_progress_reporter,
 			Seed seed=std::random_device()()) :
 			_func(func),
 			_tree(LeafData()),
 			_rnd_left(),
-			_checked(false) {
+			_checked(false),
+			explore_progress_reporter(explore_progress_reporter),
+			tune_progress_reporter(tune_progress_reporter) {
 		// Seed the left generator.
 		std::seed_seq seed_seq { seed };
 		_rnd_left.seed(seed_seq);
@@ -1567,12 +1601,13 @@ public:
 		extent.fill(1.);
 		CellHandle root = _tree.root();
 		std::size_t cells;
-		_scale_exp = scale_exp_init;
+		_scale_exp = scale_exp_est;
 		do {
 			cells = _tree.size();
 			R mean_tot = mean(root);
 			R prime_tot = prime(root);
 			R split_vol_tot = split_vol(root, _scale_exp);
+			R target_prime_diff = mean_tot * sqrt1p_1m(target_rel_var);
 			std::size_t leafs = _tree.leaf_size();
 			// TODO: I've been using this to log behaviour of the exploration
 			// process, so I'll shamelessly leave it in here until proper
@@ -1580,9 +1615,10 @@ public:
 			//std::cout << "Status: " << leafs << ", " << prime_tot << ", " << mean_tot << std::endl;
 			_prev_primes.push_back(prime_tot);
 			_prev_leafs.push_back(leafs);
-			// Adjust the scaling exponent using a linear regression to some
-			// number of previous steps.
-			if (scale_exp_adjust && _prev_primes.size() >= scale_exp_history_count) {
+			// Estimate the true scaling exponent using a linear regression to
+			// some number of previous steps.
+			R scale_exp_regression = std::numeric_limits<R>::quiet_NaN();
+			if (_prev_primes.size() >= scale_exp_history_count) {
 				R mean_log_cells = 0.;
 				R mean_log_prime = 0.;
 				R mean_log_cells_sq = 0.;
@@ -1606,17 +1642,30 @@ public:
 					mean_log_cells_sq += sq(log_leafs) / count;
 					mean_log_prime_cells += log_prime * log_leafs / count;
 				}
-				R scale_exp_target =
+				scale_exp_regression =
 					-(mean_log_prime_cells - mean_log_prime * mean_log_cells)
 					/ (mean_log_cells_sq - sq(mean_log_cells));
-				if (scale_exp_target < 0.) {
-					scale_exp_target = 0.;
-				}
-				if (!std::isfinite(scale_exp_target)) {
-					scale_exp_target = scale_exp_init;
-				}
-				_scale_exp = scale_exp_target;
 			}
+			if (scale_exp_adjust) {
+				if (!std::isfinite(scale_exp_regression)) {
+					_scale_exp = scale_exp_est;
+				} else if (!(scale_exp_regression >= 0.)) {
+					_scale_exp = 0.;
+				} else {
+					_scale_exp = scale_exp_regression;
+				}
+			} else {
+				_scale_exp = scale_exp_est;
+			}
+			// Estimate progress using regression scale exponent.
+			if (explore_progress_reporter != nullptr) {
+				R prime_diff = prime_tot - mean_tot;
+				R progress = clamp<R>(
+					pow_inv(target_prime_diff / prime_diff, scale_exp_regression),
+					0., 1.);
+				(*explore_progress_reporter)({ progress });
+			}
+			// Explore the cell generator.
 			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp parallel
 			#pragma omp single
@@ -1631,9 +1680,9 @@ public:
 		} while (cells != _tree.size() && _tree.size() < max_explore_cells);
 		update_total_stats();
 		// Calculate ideal number of leaf cells, and see if we surpassed it.
-		R target_prime = _mean * sqrt1p_1m(target_rel_var);
+		R target_prime_diff = _mean * sqrt1p_1m(target_rel_var);
 		R ideal_leafs = pow_inv(
-			std::pow(_split_vol, _scale_exp + 1.) / target_prime,
+			std::pow(_split_vol, _scale_exp + 1.) / target_prime_diff,
 			_scale_exp);
 		if (ideal_leafs > R(_tree.leaf_size())) {
 			return ideal_leafs - _tree.leaf_size();
@@ -1676,6 +1725,11 @@ public:
 			if (samples > max_samples) {
 				undertuned_samples = samples - max_tune_samples;
 				samples = max_tune_samples;
+			}
+			// Estimate progress using the tuning stage.
+			if (tune_progress_reporter != nullptr) {
+				R progress = clamp<R>(R(stage) / tune_num_stages, 0., 1.);
+				(*explore_progress_reporter)({ progress });
 			}
 			// Sample from the cell generator.
 			#ifdef BUBBLE_USE_OPENMP
@@ -2038,6 +2092,18 @@ inline CellBuilder<D, R, F> make_builder(
 		F func,
 		Seed seed=std::random_device()()) {
 	return CellBuilder<D, R, F>(func, seed);
+}
+template<Dim D, typename R, typename F>
+inline CellBuilder<D, R, F> make_builder(
+		F func,
+		ExploreProgressReporter<R> const* explore_progress_reporter,
+		TuneProgressReporter<R> const* tune_progress_reporter,
+		Seed seed=std::random_device()()) {
+	return CellBuilder<D, R, F>(
+		func,
+		explore_progress_reporter,
+		tune_progress_reporter,
+		seed);
 }
 template<Dim D, typename R, typename F>
 inline CellGenerator<D, R, F> make_generator(
