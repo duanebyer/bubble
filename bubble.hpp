@@ -672,7 +672,7 @@ struct ExploreProgress final {
 };
 template<typename R>
 struct ExploreProgressReporter {
-	virtual void operator()(ExploreProgress<R> progress) const = 0;
+	virtual void operator()(ExploreProgress<R> progress) = 0;
 };
 
 template<typename R>
@@ -681,7 +681,7 @@ struct TuneProgress final {
 };
 template<typename R>
 struct TuneProgressReporter {
-	virtual void operator()(TuneProgress<R> progress) const = 0;
+	virtual void operator()(TuneProgress<R> progress) = 0;
 };
 
 template<Dim D, typename R, typename F>
@@ -799,8 +799,8 @@ public:
 	std::size_t check_samples = 16384;
 
 	// Progress reporters.
-	ExploreProgressReporter<R> const* explore_progress_reporter;
-	TuneProgressReporter<R> const* tune_progress_reporter;
+	ExploreProgressReporter<R>* explore_progress_reporter;
+	TuneProgressReporter<R>* tune_progress_reporter;
 
 private:
 	// Gets a seed from the left generator.
@@ -1513,8 +1513,8 @@ public:
 		CellBuilder(func, nullptr, nullptr, seed) { }
 	CellBuilder(
 			F func,
-			ExploreProgressReporter<R> const* explore_progress_reporter,
-			TuneProgressReporter<R> const* tune_progress_reporter,
+			ExploreProgressReporter<R>* explore_progress_reporter,
+			TuneProgressReporter<R>* tune_progress_reporter,
 			Seed seed=std::random_device()()) :
 			_func(func),
 			_tree(LeafData()),
@@ -2096,8 +2096,8 @@ inline CellBuilder<D, R, F> make_builder(
 template<Dim D, typename R, typename F>
 inline CellBuilder<D, R, F> make_builder(
 		F func,
-		ExploreProgressReporter<R> const* explore_progress_reporter,
-		TuneProgressReporter<R> const* tune_progress_reporter,
+		ExploreProgressReporter<R>* explore_progress_reporter,
+		TuneProgressReporter<R>* tune_progress_reporter,
 		Seed seed=std::random_device()()) {
 	return CellBuilder<D, R, F>(
 		func,
