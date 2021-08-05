@@ -23,6 +23,11 @@ static T sq(T x) {
 	return x * x;
 }
 template<typename T>
+T sqrt1p_1m(T x) {
+	// Numerically accurate computation of `sqrt(1 + x) - 1`.
+	return std::expm1(0.5 * std::log1p(x));
+}
+template<typename T>
 static T pow_inv(T x, T p) {
 	if (p == 0.) {
 		if (x > 1.) {
@@ -1111,6 +1116,7 @@ private:
 			if (stats_tot.count() >= min_cell_explore_samples) {
 				R rel_var_err;
 				R rel_var = est_rel_var(stats_tot, &rel_var_err);
+				R target_prime = mean_tot * sqrt1p_1m(target_rel_var);
 
 				// Termination condition 1. Efficiency meets criteria.
 				// First check the cell division volatility. If the ratio is
@@ -1119,8 +1125,7 @@ private:
 				// terminate).
 				R cell_split_vol =
 					pow_inv(
-						clamp_above<R>(
-							split_vol_tot / (0.5 * target_rel_var * mean_tot)),
+						clamp_above<R>(split_vol_tot / target_prime),
 						scale_exp)
 					* split_vol(stats_tot, scale_exp);
 				// Termination will only be considered if the cell volatility
@@ -1238,8 +1243,8 @@ private:
 					// many samples have been requested, then make a division.
 					R prime_diff_err_req = std::abs(
 						prime_diff_rel_err_for_split * prime_diff_min);
-					R flat_prime_diff_err_req = 0.5 * flat_prime_diff_err_factor
-						* mean_tot * target_rel_var / std::sqrt(leafs);
+					R flat_prime_diff_err_req = flat_prime_diff_err_factor
+						* target_prime / std::sqrt(leafs);
 					bool err_cond = (prime_diff_err_min <= prime_diff_err_req);
 					bool sample_cond = (stats.count() >= max_cell_explore_samples);
 					bool flat_cond = (flat_prime_diff_err_req >= -prime_diff_min);
@@ -1626,9 +1631,9 @@ public:
 		} while (cells != _tree.size() && _tree.size() < max_explore_cells);
 		update_total_stats();
 		// Calculate ideal number of leaf cells, and see if we surpassed it.
+		R target_prime = _mean * sqrt1p_1m(target_rel_var);
 		R ideal_leafs = pow_inv(
-			std::pow(_split_vol, _scale_exp + 1.)
-				/ (0.5 * target_rel_var * _mean),
+			std::pow(_split_vol, _scale_exp + 1.) / target_prime,
 			_scale_exp);
 		if (ideal_leafs > R(_tree.leaf_size())) {
 			return ideal_leafs - _tree.leaf_size();
