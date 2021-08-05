@@ -50,7 +50,7 @@ static T clamp(T x, T min, T max) {
 	} else if (x < max) {
 		return x;
 	} else {
-		return min;
+		return max;
 	}
 }
 template<typename T>
