@@ -1609,10 +1609,6 @@ public:
 			R split_vol_tot = split_vol(root, _scale_exp);
 			R target_prime_diff = mean_tot * sqrt1p_1m(target_rel_var);
 			std::size_t leafs = _tree.leaf_size();
-			// TODO: I've been using this to log behaviour of the exploration
-			// process, so I'll shamelessly leave it in here until proper
-			// progress evaluation is in place.
-			//std::cout << "Status: " << leafs << ", " << prime_tot << ", " << mean_tot << std::endl;
 			_prev_primes.push_back(prime_tot);
 			_prev_leafs.push_back(leafs);
 			// Estimate the true scaling exponent using a linear regression to
@@ -1665,6 +1661,10 @@ public:
 					0., 1.);
 				(*explore_progress_reporter)({ progress });
 			}
+			// TODO: I've been using this to log behaviour of the exploration
+			// process, so I'll shamelessly leave it in here until proper
+			// progress evaluation is in place.
+			//std::cout << "Status: " << leafs << ", " << prime_tot << ", " << mean_tot << ", " << scale_exp_regression << std::endl;
 			// Explore the cell generator.
 			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp parallel
