@@ -7,6 +7,7 @@
 #include <istream>
 #include <limits>
 #include <ostream>
+#include <queue>
 #include <random>
 #include <stdexcept>
 #include <type_traits>
@@ -1081,6 +1082,172 @@ private:
 		_tune_vol = tune_vol(root, _prime);
 	}
 
+	void explore_leaf_flat(
+			CellHandle cell,
+			Point<D, R> offset, Point<D, R> extent) noexcept {
+		// Create a random number generator (a "right" generator) which will be
+		// used.
+		std::vector<Seed> seed;
+		#ifdef BUBBLE_USE_OPENMP
+		#pragma omp critical (bubble_rand)
+		#endif
+		{
+			seed = sample_rnd_left();
+		}
+		std::seed_seq seed_seq(seed.begin(), seed.end());
+		RndR rnd(seed_seq);
+
+		R volume = 1.;
+		for (Dim dim = 0; dim < D; ++dim) {
+			volume *= extent[dim];
+		}
+		StatsAccum<R> stats_accum;
+		std::array<std::vector<StatsAccum<R> >, D> hist_stats_accum;
+		for (Dim dim = 0; dim < D; ++dim) {
+			hist_stats_accum[dim].resize(hist_num_bins);
+		}
+		for (std::size_t sample = 0; sample < min_cell_explore_samples; ++sample) {
+			Point<D, R> point;
+			std::size_t hist_idx[D];
+			std::uniform_int_distribution<std::size_t> idx_dist(
+				0,
+				hist_num_bins - 1);
+			for (Dim dim = 0; dim < D; ++dim) {
+				std::size_t idx = idx_dist(rnd);
+				hist_idx[dim] = idx;
+				R lower = offset[dim]
+					+ extent[dim] * idx / hist_num_bins;
+				R upper = offset[dim]
+					+ extent[dim] * (idx + 1) / hist_num_bins;
+				std::uniform_real_distribution<R> x_dist(lower, upper);
+				point[dim] = x_dist(rnd);
+			}
+			// First choose a histogram index to generate in, then make the
+			// point itself.
+			R f = volume * _func(point);
+			stats_accum += f;
+			// Fill histograms.
+			for (Dim dim = 0; dim < D; ++dim) {
+				hist_stats_accum[dim][hist_idx[dim]] += f;
+			}
+		}
+		Stats<R> stats = stats_accum.total();
+		// Store the stats for a half-way division along the
+		// dimension with greatest extent, just in case the cell is
+		// too flat to choose a division site in any better way.
+		Stats<R> stats_lower_half;
+		Stats<R> stats_upper_half;
+		// Find the dimension with the greatest extent.
+		Dim dim_extent_max = 0;
+		R extent_max = 0.;
+		for (Dim dim = 0; dim < D; ++dim) {
+			if (extent[dim] > extent_max) {
+				extent_max = extent[dim];
+				dim_extent_max = dim;
+			}
+		}
+		// Find the division site with the greatest reduction in
+		// overall prime value.
+		R prime_diff_min = std::numeric_limits<R>::max();
+		R prime_diff_err_min = 0.;
+		Dim dim_min = dim_extent_max;
+		std::size_t bin_min = hist_num_bins / 2;
+		Stats<R> stats_lower_min;
+		Stats<R> stats_upper_min;
+		for (Dim dim = 0; dim < D; ++dim) {
+			// Total up the statistics in the histograms.
+			std::vector<Stats<R> > hist_stats(hist_num_bins);
+			for (std::size_t bin = 0; bin < hist_num_bins; ++bin) {
+				hist_stats[bin] = hist_stats_accum[dim][bin].total();
+			}
+			// Integrated statistics below and above the proposed
+			// division site.
+			std::vector<Stats<R> > hist_stats_lower;
+			std::vector<Stats<R> > hist_stats_upper;
+			hist_stats_lower.reserve(hist_num_bins - 1);
+			hist_stats_upper.reserve(hist_num_bins - 1);
+			// TODO: Use accumulators? The difficulty is that the
+			// total is needed every iteration to push onto the
+			// integrated histograms.
+			Stats<R> stats_lower_tot;
+			Stats<R> stats_upper_tot;
+			for (std::size_t bin = 0; bin < hist_num_bins - 1; ++bin) {
+				std::size_t rbin = hist_num_bins - bin - 1;
+				stats_lower_tot += hist_stats[bin];
+				stats_upper_tot += hist_stats[rbin];
+				hist_stats_lower.push_back(stats_lower_tot);
+				hist_stats_upper.push_back(stats_upper_tot);
+			}
+			// Store the statistics for a half-way division.
+			if (dim == dim_extent_max) {
+				std::size_t bin = hist_num_bins / 2;
+				std::size_t bin_lower = bin - 1;
+				std::size_t bin_upper = hist_num_bins - bin - 1;
+				stats_lower_half = hist_stats_lower[bin_lower];
+				stats_upper_half = hist_stats_upper[bin_upper];
+			}
+			// Test division at each internal bin boundary.
+			for (std::size_t bin = 1; bin < hist_num_bins; ++bin) {
+				std::size_t bin_lower = bin - 1;
+				std::size_t bin_upper = hist_num_bins - bin - 1;
+				Stats<R> stats_lower = hist_stats_lower[bin_lower];
+				Stats<R> stats_upper = hist_stats_upper[bin_upper];
+				// If a bin doesn't have the counts needed to
+				// compute statistics, just drop it.
+				if (stats_lower.count() <= 3
+						|| stats_upper.count() <= 3) {
+					continue;
+				}
+				// Estimate the total prime resulting from splitting
+				// the cell at this bin boundary. Need to scale by
+				// the volume fractions, to account for volume being
+				// included in the statistics measures.
+				R lambda_lower = R(bin) / hist_num_bins;
+				R lambda_upper = R(hist_num_bins - bin) / hist_num_bins;
+				R prime_diff_err;
+				R prime_diff = est_prime_diff(
+					stats,
+					lambda_lower, stats_lower,
+					lambda_upper, stats_upper,
+					&prime_diff_err);
+				// Update minimum.
+				if (prime_diff < prime_diff_min) {
+					prime_diff_min = prime_diff;
+					prime_diff_err_min = prime_diff_err;
+					dim_min = dim;
+					bin_min = bin;
+					stats_lower_min = stats_lower;
+					stats_upper_min = stats_upper;
+				}
+			}
+		}
+		// If the relative error is small enough, or if just too
+		// many samples have been requested, then make a division.
+		// TODO: Include a user-defined factor here.
+		if (std::abs(prime_diff_min) <= prime_diff_err_min) {
+			dim_min = dim_extent_max;
+			bin_min = hist_num_bins / 2;
+			stats_lower_min = stats_lower_half;
+			stats_upper_min = stats_upper_half;
+		}
+		R lambda_lower = R(bin_min) / hist_num_bins;
+		R lambda_upper = R(hist_num_bins - bin_min) / hist_num_bins;
+		LeafData leaf_data[2] = {
+			{ lambda_lower * stats_lower_min },
+			{ lambda_upper * stats_upper_min },
+		};
+		#ifdef BUBBLE_USE_OPENMP
+		#pragma omp critical (bubble_tree)
+		#endif
+		{
+			_tree.split(
+				cell,
+				typename TreeType::Branch(
+					dim_min, lambda_lower),
+				BranchData(),
+				leaf_data);
+		}
+	}
 	// Determines the efficiency of the cell generator within a specific cell.
 	// If the efficiency is good enough, leaves the cell alone, otherwise, adds
 	// new children to the cell to improve its efficiency.
@@ -1586,6 +1753,76 @@ public:
 		}
 	}
 
+	void explore_flat() {
+		if (!_checked) {
+			check();
+		}
+		struct CellHandleSized {
+			CellHandle handle;
+			Point<D, R> offset;
+			Point<D, R> extent;
+		};
+		auto compare = [&](CellHandleSized a, CellHandleSized b) {
+			Stats<R> stats_a = _tree.leaf_data(a.handle).stats;
+			Stats<R> stats_b = _tree.leaf_data(b.handle).stats;
+			R prime_a = est_prime(stats_a);
+			R mean_a = est_mean(stats_a);
+			R prime_b = est_prime(stats_b);
+			R mean_b = est_mean(stats_b);
+			return prime_a - mean_a < prime_b - mean_b;
+		};
+		std::priority_queue<
+			CellHandleSized,
+			std::vector<CellHandleSized>,
+			decltype(compare)> queue(compare);
+		Point<D, R> offset;
+		Point<D, R> extent;
+		offset.fill(0.);
+		extent.fill(1.);
+		queue.push({ _tree.root(), offset, extent });
+		std::vector<CellHandleSized> next_cells;
+		while (_tree.size() < max_explore_cells) {
+			next_cells.clear();
+			for (std::size_t idx = 0; idx < 32; ++idx) {
+				if (queue.empty()) {
+					break;
+				}
+				CellHandleSized cell = queue.top();
+				queue.pop();
+				next_cells.push_back(cell);
+			}
+			if (explore_progress_reporter != nullptr) {
+				R ratio = static_cast<R>(_tree.size()) / max_explore_cells;
+				R progress = clamp<R>(ratio, 0., 1.);
+				(*explore_progress_reporter)({ progress });
+			}
+			#ifdef BUBBLE_USE_OPENMP
+			#pragma omp parallel for shared(queue)
+			#endif
+			for (std::size_t idx = 0; idx < next_cells.size(); ++idx) {
+				CellHandleSized cell = next_cells[idx];
+				explore_leaf_flat(cell.handle, cell.offset, cell.extent);
+				#ifdef BUBBLE_USE_OPENMP
+				#pragma omp critical (bubble_queue)
+				#pragma omp critical (bubble_tree)
+				#endif
+				{
+					for (std::size_t child_idx = 0; child_idx < 2; ++child_idx) {
+						Point<D, R> offset_child = cell.offset;
+						Point<D, R> extent_child = cell.extent;
+						Point<D, R> offset_local = _tree.offset_local(cell.handle, child_idx);
+						Point<D, R> extent_local = _tree.extent_local(cell.handle, child_idx);
+						for (Dim dim = 0; dim < D; ++dim) {
+							offset_child[dim] += extent[dim] * offset_local[dim];
+							extent_child[dim] *= extent_local[dim];
+						}
+						queue.push({ _tree.child(cell.handle, child_idx), offset_child, extent_child });
+					}
+				}
+			}
+		}
+	}
+
 	// Explores the distribution to create a well-balanced cell generator that
 	// can reach the desired performance. If unable to create a well-balanced
 	// cell generator, returns estimated number of cells that the exploration
@@ -1612,7 +1849,7 @@ public:
 			// TODO: I've been using this to log behaviour of the exploration
 			// process, so I'll shamelessly leave it in here until proper
 			// progress evaluation is in place.
-			//std::cout << "Status: " << leafs << ", " << prime_tot << ", " << mean_tot << std::endl;
+			//std::cout << "Status: " << leafs << "\t" << prime_tot << "\t" << mean_tot << std::endl;
 			_prev_primes.push_back(prime_tot);
 			_prev_leafs.push_back(leafs);
 			// Estimate the true scaling exponent using a linear regression to
