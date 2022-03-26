@@ -1902,6 +1902,10 @@ public:
 					0., 1.);
 				(*explore_progress_reporter)({ progress });
 			}
+			// TODO: I've been using this to log behaviour of the exploration
+			// process, so I'll shamelessly leave it in here until proper
+			// progress evaluation is in place.
+			//std::cout << "Status: " << leafs << ", " << prime_tot << ", " << mean_tot << ", " << scale_exp_regression << std::endl;
 			// Explore the cell generator.
 			#ifdef BUBBLE_USE_OPENMP
 			#pragma omp parallel
