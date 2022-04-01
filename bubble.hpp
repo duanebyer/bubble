@@ -2208,15 +2208,6 @@ public:
 		return _func;
 	}
 
-	// Get access to the random number generator. Useful for modified sampling
-	// (ex. rejection sampling).
-	R& rnd() {
-		return _rnd;
-	}
-	R const& rnd() const {
-		return _rnd;
-	}
-
 	// Returns the prime value. This can be combined with the weights to
 	// integrate the distribution.
 	R prime() const {
@@ -2315,6 +2306,7 @@ public:
 		fill_primes(_tree.root());
 	}
 
+	// Samples.
 	void generate(R* weight_out, Point<D, R>* point_out) {
 		// Generate random number.
 		std::uniform_real_distribution<R> dist(0, 1);
@@ -2333,6 +2325,24 @@ public:
 			offset, extent,
 			choose_cell, choose_point,
 			weight_out, point_out);
+	}
+
+	// Sample with rejection sampling.
+	void generate_rej(R scale, R* weight_out, Point<D, R>* point_out) {
+		std::uniform_real_distribution<R> dist(0, 1);
+		while (true) {
+			generate(weight_out, point_out);
+			*weight_out /= scale;
+			if (*weight_out < 1.) {
+				R test = dist(_rnd);
+				if (test < *weight_out) {
+					*weight_out = 1.;
+					break;
+				}
+			} else {
+				break;
+			}
+		}
 	}
 };
 
