@@ -2327,22 +2327,11 @@ public:
 			weight_out, point_out);
 	}
 
-	// Sample with rejection sampling.
-	void generate_rej(R scale, R* weight_out, Point<D, R>* point_out) {
-		std::uniform_real_distribution<R> dist(0, 1);
-		while (true) {
-			generate(weight_out, point_out);
-			*weight_out /= scale;
-			if (*weight_out < 1.) {
-				R test = dist(_rnd);
-				if (test < *weight_out) {
-					*weight_out = 1.;
-					break;
-				}
-			} else {
-				break;
-			}
-		}
+	// Sample with rejection sampling draw included.
+	void generate_rej(R scale, R* weight_out, R* rej_out, Point<D, R>* point_out) {
+		std::uniform_real_distribution<R> dist(0., scale);
+		generate(weight_out, point_out);
+		*rej_out = dist(_rnd);
 	}
 };
 
