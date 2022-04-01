@@ -129,7 +129,7 @@ Monte-Carlo event generators produce identical independent random events
 
 \begin_inset Formula 
 \begin{equation}
-\mathrm{E}\left[\mathcal{O}\right]=\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)\mathcal{O}\left(x\right)=\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)+O\left(\frac{1}{N}\right)\label{eq:observable-def}
+\mathrm{E}_{\rho}\left[\mathcal{O}\right]=\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)\mathcal{O}\left(x\right)=\mathrm{E}_{P}\left[\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)\right]\label{eq:observable-def}
 \end{equation}
 
 \end_inset
@@ -150,7 +150,7 @@ on
 
 \begin_inset Formula 
 \[
-\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)=\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)+O\left(\frac{1}{N}\right)
+\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)=\mathrm{E}_{P}\left[\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\right]
 \]
 
 \end_inset
@@ -170,7 +170,7 @@ For these properties to hold, the weight function
 
 \begin_inset Formula 
 \begin{align}
-\mathrm{E}\left[\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)\right] & =\frac{1}{N}\sum_{n=1}^{N}\int_{\Omega}\mathrm{d}x_{n}\:P\left(x_{n}\right)w\left(x_{n}\right)\mathcal{O}\left(x_{n}\right)\nonumber \\
+\mathrm{E}_{P}\left[\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)\right] & =\frac{1}{N}\sum_{n=1}^{N}\int_{\Omega}\mathrm{d}x_{n}\:P\left(x_{n}\right)w\left(x_{n}\right)\mathcal{O}\left(x_{n}\right)\nonumber \\
  & =\int_{\Omega}\mathrm{d}x\:P\left(x\right)w\left(x\right)\mathcal{O}\left(x\right)\nonumber \\
 w\left(x\right) & =\frac{\rho\left(x\right)}{P\left(x\right)}\label{eq:weight-def}
 \end{align}
@@ -225,7 +225,12 @@ We will define the efficiency of a generator to be the ratio
 \end_layout
 
 \begin_layout Standard
-The efficiency can be calculated using the distribution of weights.
+The efficiency can be calculated using the distribution of weights (from
+ now on, we will take expectations to be with respect to 
+\begin_inset Formula $P$
+\end_inset
+
+, by default).
 \begin_inset Newline newline
 \end_inset
 
