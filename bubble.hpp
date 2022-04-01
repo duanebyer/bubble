@@ -2208,6 +2208,15 @@ public:
 		return _func;
 	}
 
+	// Get access to the random number generator. Useful for modified sampling
+	// (ex. rejection sampling).
+	R& rnd() {
+		return _rnd;
+	}
+	R const& rnd() const {
+		return _rnd;
+	}
+
 	// Returns the prime value. This can be combined with the weights to
 	// integrate the distribution.
 	R prime() const {
