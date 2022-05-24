@@ -2327,11 +2327,27 @@ public:
 			weight_out, point_out);
 	}
 
-	// Sample with rejection sampling draw included.
-	void generate_rej(R scale, R* weight_out, R* rej_out, Point<D, R>* point_out) {
-		std::uniform_real_distribution<R> dist(0., scale);
+	// Sample with rejection sampling. Note that no events are actually
+	// rejected. Instead, some events are re-weighted to zero. These zero-weight
+	// events can then be rejected by the user. This ensures that the average
+	// weight remains unchanged as compared to standard generation (although
+	// variance of weights will be reduced). The scale sets the amount of
+	// rejection sampling to apply, with only the events with weights smaller
+	// than the scale being subject to rejection.
+	void generate_rej(R scale, R* weight_out, Point<D, R>* point_out) {
+		std::uniform_real_distribution<R> dist(0., 1.);
 		generate(weight_out, point_out);
-		*rej_out = dist(_rnd);
+		R rej = dist(_rnd);
+		if (*weight_out < rej * scale) {
+			// Event is rejected.
+			*weight_out = 0.;
+		} else if (*weight_out < scale) {
+			// Event is accepted.
+			*weight_out = scale;
+		} else {
+			// Event is unchanged.
+			*weight_out;
+		}
 	}
 };
 
