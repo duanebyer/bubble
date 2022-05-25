@@ -416,6 +416,18 @@ public:
 		return _max;
 	}
 
+	// Rescales the number of events that have been recorded. If `new_count` is
+	// greater than the current count, this is equivalent to adding a number of
+	// zero events. If `new_count` is smaller, then it is equivalent to
+	// neglecting a number of zero events.
+	void scale_count(std::size_t new_count) {
+		R lambda = static_cast<R>(_count) / new_count;
+		for (std::size_t idx = 0; idx < NUM_MOMS; ++idx) {
+			_mom[idx] *= lambda;
+		}
+		_count = new_count;
+	}
+
 	// Returns whether the measures are valid. Non-valid measures could indicate
 	// that negative numbers were entered into the statistics, or that overflow
 	// occured.
