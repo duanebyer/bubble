@@ -604,6 +604,49 @@ public:
 			return 0.;
 		}
 	}
+
+	// Estimators with errors. These estimators include an error estimate for
+	// certain quantities useful for generators.
+	R est_mean(R* err_out=nullptr) const {
+		R est = mean();
+		if (err_out != nullptr) {
+			*err_out = max() * std::sqrt(clamp_above<R>(
+				ratio_var1_to_max2() / count()));
+		}
+		return est;
+	}
+	// TODO: No standard deviation estimator yet.
+	R est_rel_var(R* err_out=nullptr) const {
+		R est_0 = ratio_var1_to_m1p2();
+		// Small correction to relative variance for bias.
+		R correction = (2. * ratio_skew1_to_var1_m1() - 3. * est_0) / count();
+		// Correction must be small.
+		if (!(-0.5 < correction && correction < 0.5)) {
+			correction = 0.;
+		}
+		R est = est_0 * (1. + correction);
+		if (err_out != nullptr) {
+			R kurt_term = ratio_kurt1_to_var1p2();
+			R skew_term = ratio_skew1_to_var1_m1();
+			R var_term = ratio_var1_to_m1p2();
+			R term = kurt_term - 4. * skew_term + 4. * var_term - 1.;
+			*err_out = est_0 * std::sqrt(clamp_above<R>(term / count()));
+		}
+		return est;
+	}
+	R est_sqrt_m2(R* err_out=nullptr) const {
+		R est_0 = max() * std::sqrt(clamp_above<R>(ratio_m2_to_max2()));
+		R correction = (1. / 8) * ratio_var2_to_m2p2() / count();
+		if (!(-0.5 < correction && correction < 0.5)) {
+			correction = 0.;
+		}
+		R est = est_0 * (1. + correction);
+		if (err_out != nullptr) {
+			*err_out = max() * std::sqrt(clamp_above<R>(
+				0.25 * ratio_var2_to_max2_m2() / count()));
+		}
+		return est;
+	}
 };
 template<typename R>
 inline Stats<R> operator+(Stats<R> lhs, Stats<R> const& rhs) {
@@ -816,73 +859,16 @@ private:
 		return result;
 	}
 
-	// Some important statistical estimators used by this class. These
-	// estimators can be similar to those in the `Stats` class. Unlike the
-	// `Stats` class, these estimators all have some amount of correction for
-	// bias (to some order in `1 / count`). They also provide an error estimate.
-
-	// Estimate the mean.
-	static R est_mean(Stats<R> const& stats, R* err_out=nullptr) {
-		R mean = stats.mean();
-		if (err_out != nullptr) {
-			*err_out = stats.max() * std::sqrt(clamp_above<R>(
-				stats.ratio_var1_to_max2() / stats.count()));
-		}
-		return mean;
-	}
-
-	// Estimates the relative variance (variance to mean squared) to subleading
-	// order.
-	static R est_rel_var(Stats<R> const& stats, R* err_out=nullptr) {
-		R rel_var_i = stats.ratio_var1_to_m1p2();
-		// Small correction to relative variance for bias.
-		R correction = (2. * stats.ratio_skew1_to_var1_m1() - 3. * rel_var_i)
-			/ stats.count();
-		// Correction must be small.
-		if (!(-0.5 < correction && correction < 0.5)) {
-			correction = 0.;
-		}
-		R rel_var = rel_var_i * (1. + correction);
-		if (err_out != nullptr) {
-			R kurt_term = stats.ratio_kurt1_to_var1p2();
-			R skew_term = stats.ratio_skew1_to_var1_m1();
-			R var_term = stats.ratio_var1_to_m1p2();
-			*err_out = rel_var_i * std::sqrt(clamp_above<R>(
-				(kurt_term - 4. * skew_term + 4. * var_term - 1.) / stats.count()));
-		}
-		return rel_var;
-	}
-
-	// Estimates the ideal prime value.
-	static R est_prime(Stats<R> const& stats, R* err_out=nullptr) {
-		// Estimate the ideal prime value, which is given by:
-		//     F_c = \sqrt{V_c \int dx f^2(x)}
-		// with a small correction for bias added on.
-		R prime_i = stats.max() * std::sqrt(clamp_above<R>(
-			stats.ratio_m2_to_max2()));
-		R correction = (1. / 8) * stats.ratio_var2_to_m2p2() / stats.count();
-		// Correction must be small.
-		if (!(-0.5 < correction && correction < 0.5)) {
-			correction = 0.;
-		}
-		R prime = prime_i * (1. + correction);
-		if (err_out != nullptr) {
-			*err_out = stats.max() * std::sqrt(clamp_above<R>(
-				0.25 * stats.ratio_var2_to_max2_m2() / stats.count()));
-		}
-		return prime;
-	}
-
 	// Estimates the different in the prime value from splitting a parent region
 	// into two child regions.
-	static R est_prime_diff(
+	static R est_sqrt_m2_diff(
 			Stats<R> const& stats,
 			R lambda_1, Stats<R> const& stats_1,
 			R lambda_2, Stats<R> const& stats_2,
 			R* err_out=nullptr) {
-		R prime = est_prime(stats);
-		R prime_1 = lambda_1 * est_prime(stats_1);
-		R prime_2 = lambda_2 * est_prime(stats_2);
+		R prime = stats.est_sqrt_m2();
+		R prime_1 = lambda_1 * stats_1.est_sqrt_m2();
+		R prime_2 = lambda_2 * stats_2.est_sqrt_m2();
 		R prime_diff = prime_1 + prime_2 - prime;
 		if (err_out != nullptr) {
 			// The variance of the difference of primes is given to subleading
@@ -961,8 +947,8 @@ private:
 	// Calculate the split volatility, a number indicating how much of an impact
 	// splitting a cell has on the overall efficiency of the generator.
 	static R split_vol(Stats<R> const& stats, R scale_exp_est) {
-		R prime = est_prime(stats);
-		R mean = est_mean(stats);
+		R prime = stats.est_sqrt_m2();
+		R mean = stats.est_mean();
 		R split_vol = pow_inv(prime - mean, scale_exp_est + 1.);
 		return split_vol;
 	}
@@ -971,7 +957,7 @@ private:
 	// impact sampling from a cell has on the overall efficiency of the
 	// generator.
 	static R tune_vol(Stats<R> const& stats, R prime_tot) {
-		R prime = est_prime(stats);
+		R prime = stats.est_sqrt_m2();
 		R ratio = stats.ratio_var2_to_m2p2();
 		R tune_vol = 0.5 * std::sqrt(clamp_above<R>(
 			(prime / prime_tot) * ((prime_tot - prime) / prime_tot) * ratio));
@@ -1010,7 +996,7 @@ private:
 			}
 			return mean_tot;
 		} else {
-			return est_mean(_tree.leaf_data(cell).stats, err_out);
+			return _tree.leaf_data(cell).stats.est_mean(err_out);
 		}
 	}
 	// Finds the prime (with error) for a cell.
@@ -1043,7 +1029,7 @@ private:
 			}
 			return prime_tot;
 		} else {
-			return est_prime(_tree.leaf_data(cell).stats, err_out);
+			return _tree.leaf_data(cell).stats.est_sqrt_m2(err_out);
 		}
 	}
 	// Finds split volatility for a cell.
@@ -1205,7 +1191,7 @@ private:
 				R lambda_lower = R(bin) / hist_num_bins;
 				R lambda_upper = R(hist_num_bins - bin) / hist_num_bins;
 				R prime_diff_err;
-				R prime_diff = est_prime_diff(
+				R prime_diff = est_sqrt_m2_diff(
 					stats,
 					lambda_lower, stats_lower,
 					lambda_upper, stats_upper,
@@ -1306,7 +1292,7 @@ private:
 			Stats<R> stats_tot = stats + stats_init;
 			if (stats_tot.count() >= min_cell_explore_samples) {
 				R rel_var_err;
-				R rel_var = est_rel_var(stats_tot, &rel_var_err);
+				R rel_var = stats_tot.est_rel_var(&rel_var_err);
 				// The target prime (given directly by the target relative
 				// variance), with the mean subtracted from it.
 				R target_prime_diff = mean_tot * sqrt1p_1m(target_rel_var);
@@ -1416,7 +1402,7 @@ private:
 							R lambda_lower = R(bin) / hist_num_bins;
 							R lambda_upper = R(hist_num_bins - bin) / hist_num_bins;
 							R prime_diff_err;
-							R prime_diff = est_prime_diff(
+							R prime_diff = est_sqrt_m2_diff(
 								stats,
 								lambda_lower, stats_lower,
 								lambda_upper, stats_upper,
@@ -1765,10 +1751,10 @@ public:
 		auto compare = [&](CellHandleSized a, CellHandleSized b) {
 			Stats<R> stats_a = _tree.leaf_data(a.handle).stats;
 			Stats<R> stats_b = _tree.leaf_data(b.handle).stats;
-			R prime_a = est_prime(stats_a);
-			R mean_a = est_mean(stats_a);
-			R prime_b = est_prime(stats_b);
-			R mean_b = est_mean(stats_b);
+			R prime_a = stats_a.est_sqrt_m2();
+			R mean_a = stats_a.est_mean();
+			R prime_b = stats_b.est_sqrt_m2();
+			R mean_b = stats_b.est_mean();
 			return prime_a - mean_a < prime_b - mean_b;
 		};
 		std::priority_queue<
@@ -2037,7 +2023,7 @@ public:
 				// * Tag (unsigned char).
 				// * Prime (integration real).
 				unsigned char tag = 1;
-				R prime = est_prime(_tree.leaf_data(cell).stats);
+				R prime = _tree.leaf_data(cell).stats.est_sqrt_m2();
 				os.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
 				os.write(reinterpret_cast<char const*>(&prime), sizeof(R));
 			}
@@ -2196,7 +2182,7 @@ public:
 					return Data { data.prime };
 				},
 				[](typename Builder::LeafData data) {
-					return Data { Builder::est_prime(data.stats) };
+					return Data { data.stats.est_sqrt_m2() };
 				})),
 			_rnd() {
 		std::seed_seq seed_seq { seed };
