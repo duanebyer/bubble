@@ -2335,18 +2335,22 @@ public:
 	// rejection sampling to apply, with only the events with weights smaller
 	// than the scale being subject to rejection.
 	void generate_rej(R scale, R* weight_out, Point<D, R>* point_out) {
-		std::uniform_real_distribution<R> dist(0., 1.);
-		generate(weight_out, point_out);
-		R rej = dist(_rnd);
-		if (*weight_out < rej * scale) {
-			// Event is rejected.
-			*weight_out = 0.;
-		} else if (*weight_out < scale) {
-			// Event is accepted.
-			*weight_out = scale;
+		if (scale == 0.) {
+			generate(weight_out, point_out);
 		} else {
-			// Event is unchanged.
-			*weight_out;
+			std::uniform_real_distribution<R> dist(0., 1.);
+			generate(weight_out, point_out);
+			R rej = dist(_rnd);
+			if (*weight_out < rej * scale) {
+				// Event is rejected.
+				*weight_out = 0.;
+			} else if (*weight_out < scale) {
+				// Event is accepted.
+				*weight_out = scale;
+			} else {
+				// Event is unchanged.
+				*weight_out;
+			}
 		}
 	}
 };
