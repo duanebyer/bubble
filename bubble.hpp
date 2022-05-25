@@ -2349,7 +2349,6 @@ public:
 				*weight_out = scale;
 			} else {
 				// Event is unchanged.
-				*weight_out;
 			}
 		}
 	}
