@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cmath>
+#include <functional>
 #include <ios>
 #include <istream>
 #include <limits>
@@ -24,7 +25,7 @@ static T sq(T x) {
 	return x * x;
 }
 template<typename T>
-T sqrt1p_1m(T x) {
+static T sqrt1p_1m(T x) {
 	// Numerically accurate computation of `sqrt(1 + x) - 1`.
 	return std::expm1(0.5 * std::log1p(x));
 }
@@ -684,6 +685,8 @@ class StatsAccum final {
 	// Generally, we try to sum statistics only when they have the same number
 	// of samples, because this gives the best precision on average.
 	std::vector<Stats<R> > _stack;
+	// The total so far.
+	Stats<R> _total;
 
 public:
 	StatsAccum() {
@@ -701,6 +704,13 @@ public:
 			next += _stack.back();
 			_stack.pop_back();
 		}
+		// Reset the total to the stack everytime the stack empties out (which
+		// happens on powers of 2). Otherwise, increment the total normally.
+		if (_stack.empty()) {
+			_total = next;
+		} else {
+			_total += x;
+		}
 		_stack.push_back(next);
 		return *this;
 	}
@@ -712,6 +722,11 @@ public:
 			stats_tot += stats;
 		}
 		return stats_tot;
+	}
+
+	// Returns a fast estimate of the total statistics in this accumulator.
+	Stats<R> total_fast() const {
+		return _total;
 	}
 
 	// Erases the stored sum.
@@ -740,59 +755,10 @@ struct TuneProgressReporter {
 	virtual void operator()(TuneProgress<R> progress) = 0;
 };
 
-template<Dim D, typename R, typename F>
-class CellBuilder final {
-	template<Dim D1, typename R1, typename F1>
-	friend class CellGenerator;
-
-	// Left and right random engines.
-	using RndL = std::mt19937;
-	using RndR = std::mt19937_64;
-
-	static_assert(
-		std::is_floating_point<R>::value,
-		"R must be a floating point type.");
-	static_assert(
-		std::numeric_limits<R>::is_iec559,
-		"R must satisfy IEC 559.");
-	static_assert(
-		IsDistribution<D, R, F>::value,
-		"F must be a valid distribution type (able to take a Point<D, R> to a "
-		"type convertible to R with noexcept).");
-
-	struct BranchData final { };
-	struct LeafData final {
-		Stats<R> stats;
-		LeafData() : stats() { }
-		LeafData(Stats<R> const& stats) : stats(stats) { }
-	};
-	using TreeType = Tree<KdBranch<D, R>, BranchData, LeafData>;
-
-	// Function.
-	F _func;
-	// Spatial tree storing the statistics.
-	TreeType _tree;
-	// Random number engine.
-	RndL _rnd_left;
-	// Whether the distribution function has been checked.
-	bool _checked;
-	// Persistent state for estimating scaling exponent while building.
-	R _scale_exp;
-	std::vector<R> _prev_primes;
-	std::vector<std::size_t> _prev_leafs;
-	// Global statistics.
-	R _mean;
-	R _mean_err;
-	R _prime;
-	R _prime_err;
-	// TODO: Explain volatilities somewhere in a comment.
-	R _split_vol;
-	R _tune_vol;
-
-public:
-	// Parameters that control various aspects of the exploration and tuning
-	// process.
-
+// Parameters that control various aspects of the exploration and tuning
+// processes.
+template<typename R>
+struct CellBuilderParams {
 	// The target relative variance that must be reached in all cells.
 	R target_rel_var = 0.05;
 	// The precision (in standard deviations) to which the relative variance
@@ -853,6 +819,73 @@ public:
 	std::size_t max_tune_samples = 268435456;
 	// Number of samples when doing the initial check of the distribution.
 	std::size_t check_samples = 16384;
+};
+
+template<Dim D, typename R>
+class CellGenerator;
+
+template<Dim D, typename R, typename F>
+class CellBuilder final {
+	template<Dim D1, typename R1, typename F1>
+	friend CellBuilder<D1, R1, F1> make_builder(F1 func);
+	template<Dim D1, typename R1, typename F1>
+	friend CellBuilder<D1, R1, F1> make_builder(
+		F1 func,
+		ExploreProgressReporter<R>* explore_progress_reporter,
+		TuneProgressReporter<R>* tune_progress_reporter);
+	template<Dim D1, typename R1, typename F1>
+	friend inline CellGenerator<D1, R1> make_generator(
+		CellBuilder<D1, R1, F1> const& builder);
+
+	// Left and right random engines.
+	using RndL = std::mt19937;
+	using RndR = std::mt19937_64;
+
+	static_assert(
+		std::is_floating_point<R>::value,
+		"R must be a floating point type.");
+	static_assert(
+		std::numeric_limits<R>::is_iec559,
+		"R must satisfy IEC 559.");
+	static_assert(
+		IsDistribution<D, R, F>::value,
+		"F must be a valid distribution type (able to take a Point<D, R> to a "
+		"type convertible to R with noexcept).");
+
+public:
+	struct BranchData final { };
+	struct LeafData final {
+		Stats<R> stats;
+		LeafData() : stats() { }
+		LeafData(Stats<R> const& stats) : stats(stats) { }
+	};
+	using TreeType = Tree<KdBranch<D, R>, BranchData, LeafData>;
+
+private:
+	// Function.
+	F _func;
+	// Spatial tree storing the statistics.
+	TreeType _tree;
+	// Random number engine.
+	RndL _rnd_left;
+	// Whether the distribution function has been checked.
+	bool _checked;
+	// Persistent state for estimating scaling exponent while building.
+	R _scale_exp;
+	std::vector<R> _prev_primes;
+	std::vector<std::size_t> _prev_leafs;
+	// Global statistics.
+	R _mean;
+	R _mean_err;
+	R _prime;
+	R _prime_err;
+	// TODO: Explain volatilities somewhere in a comment.
+	R _split_vol;
+	R _tune_vol;
+
+public:
+	// Parameters.
+	CellBuilderParams<R> par;
 
 	// Progress reporters.
 	ExploreProgressReporter<R>* explore_progress_reporter;
@@ -1102,21 +1135,21 @@ private:
 		StatsAccum<R> stats_accum;
 		std::array<std::vector<StatsAccum<R> >, D> hist_stats_accum;
 		for (Dim dim = 0; dim < D; ++dim) {
-			hist_stats_accum[dim].resize(hist_num_bins);
+			hist_stats_accum[dim].resize(par.hist_num_bins);
 		}
-		for (std::size_t sample = 0; sample < min_cell_explore_samples; ++sample) {
+		for (std::size_t sample = 0; sample < par.min_cell_explore_samples; ++sample) {
 			Point<D, R> point;
 			std::size_t hist_idx[D];
 			std::uniform_int_distribution<std::size_t> idx_dist(
 				0,
-				hist_num_bins - 1);
+				par.hist_num_bins - 1);
 			for (Dim dim = 0; dim < D; ++dim) {
 				std::size_t idx = idx_dist(rnd);
 				hist_idx[dim] = idx;
 				R lower = offset[dim]
-					+ extent[dim] * idx / hist_num_bins;
+					+ extent[dim] * idx / par.hist_num_bins;
 				R upper = offset[dim]
-					+ extent[dim] * (idx + 1) / hist_num_bins;
+					+ extent[dim] * (idx + 1) / par.hist_num_bins;
 				std::uniform_real_distribution<R> x_dist(lower, upper);
 				point[dim] = x_dist(rnd);
 			}
@@ -1149,28 +1182,28 @@ private:
 		R prime_diff_min = std::numeric_limits<R>::max();
 		R prime_diff_err_min = 0.;
 		Dim dim_min = dim_extent_max;
-		std::size_t bin_min = hist_num_bins / 2;
+		std::size_t bin_min = par.hist_num_bins / 2;
 		Stats<R> stats_lower_min;
 		Stats<R> stats_upper_min;
 		for (Dim dim = 0; dim < D; ++dim) {
 			// Total up the statistics in the histograms.
-			std::vector<Stats<R> > hist_stats(hist_num_bins);
-			for (std::size_t bin = 0; bin < hist_num_bins; ++bin) {
+			std::vector<Stats<R> > hist_stats(par.hist_num_bins);
+			for (std::size_t bin = 0; bin < par.hist_num_bins; ++bin) {
 				hist_stats[bin] = hist_stats_accum[dim][bin].total();
 			}
 			// Integrated statistics below and above the proposed
 			// division site.
 			std::vector<Stats<R> > hist_stats_lower;
 			std::vector<Stats<R> > hist_stats_upper;
-			hist_stats_lower.reserve(hist_num_bins - 1);
-			hist_stats_upper.reserve(hist_num_bins - 1);
+			hist_stats_lower.reserve(par.hist_num_bins - 1);
+			hist_stats_upper.reserve(par.hist_num_bins - 1);
 			// TODO: Use accumulators? The difficulty is that the
 			// total is needed every iteration to push onto the
 			// integrated histograms.
 			Stats<R> stats_lower_tot;
 			Stats<R> stats_upper_tot;
-			for (std::size_t bin = 0; bin < hist_num_bins - 1; ++bin) {
-				std::size_t rbin = hist_num_bins - bin - 1;
+			for (std::size_t bin = 0; bin < par.hist_num_bins - 1; ++bin) {
+				std::size_t rbin = par.hist_num_bins - bin - 1;
 				stats_lower_tot += hist_stats[bin];
 				stats_upper_tot += hist_stats[rbin];
 				hist_stats_lower.push_back(stats_lower_tot);
@@ -1178,16 +1211,16 @@ private:
 			}
 			// Store the statistics for a half-way division.
 			if (dim == dim_extent_max) {
-				std::size_t bin = hist_num_bins / 2;
+				std::size_t bin = par.hist_num_bins / 2;
 				std::size_t bin_lower = bin - 1;
-				std::size_t bin_upper = hist_num_bins - bin - 1;
+				std::size_t bin_upper = par.hist_num_bins - bin - 1;
 				stats_lower_half = hist_stats_lower[bin_lower];
 				stats_upper_half = hist_stats_upper[bin_upper];
 			}
 			// Test division at each internal bin boundary.
-			for (std::size_t bin = 1; bin < hist_num_bins; ++bin) {
+			for (std::size_t bin = 1; bin < par.hist_num_bins; ++bin) {
 				std::size_t bin_lower = bin - 1;
-				std::size_t bin_upper = hist_num_bins - bin - 1;
+				std::size_t bin_upper = par.hist_num_bins - bin - 1;
 				Stats<R> stats_lower = hist_stats_lower[bin_lower];
 				Stats<R> stats_upper = hist_stats_upper[bin_upper];
 				// If a bin doesn't have the counts needed to
@@ -1200,8 +1233,8 @@ private:
 				// the cell at this bin boundary. Need to scale by
 				// the volume fractions, to account for volume being
 				// included in the statistics measures.
-				R lambda_lower = R(bin) / hist_num_bins;
-				R lambda_upper = R(hist_num_bins - bin) / hist_num_bins;
+				R lambda_lower = R(bin) / par.hist_num_bins;
+				R lambda_upper = R(par.hist_num_bins - bin) / par.hist_num_bins;
 				R prime_diff_err;
 				R prime_diff = est_sqrt_m2_diff(
 					stats,
@@ -1224,12 +1257,12 @@ private:
 		// TODO: Include a user-defined factor here.
 		if (std::abs(prime_diff_min) <= prime_diff_err_min) {
 			dim_min = dim_extent_max;
-			bin_min = hist_num_bins / 2;
+			bin_min = par.hist_num_bins / 2;
 			stats_lower_min = stats_lower_half;
 			stats_upper_min = stats_upper_half;
 		}
-		R lambda_lower = R(bin_min) / hist_num_bins;
-		R lambda_upper = R(hist_num_bins - bin_min) / hist_num_bins;
+		R lambda_lower = R(bin_min) / par.hist_num_bins;
+		R lambda_upper = R(par.hist_num_bins - bin_min) / par.hist_num_bins;
 		LeafData leaf_data[2] = {
 			{ lambda_lower * stats_lower_min },
 			{ lambda_upper * stats_upper_min },
@@ -1272,7 +1305,7 @@ private:
 		// Histograms, one for each axis of the hypercube.
 		std::array<std::vector<StatsAccum<R> >, D> hist_stats_accum;
 		for (Dim dim = 0; dim < D; ++dim) {
-			hist_stats_accum[dim].resize(hist_num_bins);
+			hist_stats_accum[dim].resize(par.hist_num_bins);
 		}
 		// Find the dimension with the greatest extent.
 		Dim dim_extent_max = 0;
@@ -1297,17 +1330,17 @@ private:
 		RndR rnd(seed_seq);
 
 		// The next number at which termination conditions will be checked.
-		std::size_t next_samples = min_cell_explore_samples;
+		std::size_t next_samples = par.min_cell_explore_samples;
 		while (true) {
 			// Check termination conditions.
 			Stats<R> stats = stats_accum.total();
 			Stats<R> stats_tot = stats + stats_init;
-			if (stats_tot.count() >= min_cell_explore_samples) {
+			if (stats_tot.count() >= par.min_cell_explore_samples) {
 				R rel_var_err;
 				R rel_var = stats_tot.est_rel_var(&rel_var_err);
 				// The target prime (given directly by the target relative
 				// variance), with the mean subtracted from it.
-				R target_prime_diff = mean_tot * sqrt1p_1m(target_rel_var);
+				R target_prime_diff = mean_tot * sqrt1p_1m(par.target_rel_var);
 
 				// Termination condition 1. Efficiency meets criteria.
 				// First check the cell division volatility. If the ratio is
@@ -1326,17 +1359,17 @@ private:
 				// additionally require that the total mean is non-zero. If the
 				// total mean is zero, then all cells are required to divide in
 				// hopes of measuring a non-zero mean eventually.
-				if (mean_tot != 0. && cell_split_vol < max_cell_split_vol) {
+				if (mean_tot != 0. && cell_split_vol < par.max_cell_split_vol) {
 					R rel_var_max =
-						rel_var + target_rel_var_sigma * rel_var_err;
+						rel_var + par.target_rel_var_sigma * rel_var_err;
 					// Three possibilities for terminating:
 					// * Relative variance is smaller than target.
 					// * Cell is unimportant either because:
 					//   * Cell is low volume.
 					//   * Cell has low volatility.
-					bool var_cond = (rel_var_max <= target_rel_var);
-					bool volume_cond = (volume <= std::pow(min_cell_length, D));
-					bool vol_cond = (cell_split_vol <= min_cell_split_vol);
+					bool var_cond = (rel_var_max <= par.target_rel_var);
+					bool volume_cond = (volume <= std::pow(par.min_cell_length, D));
+					bool vol_cond = (cell_split_vol <= par.min_cell_split_vol);
 					if (var_cond || volume_cond || vol_cond) {
 						#ifdef BUBBLE_USE_OPENMP
 						#pragma omp critical (bubble_tree)
@@ -1349,7 +1382,7 @@ private:
 				}
 
 				// Termination condition 2. Cell division.
-				if (stats.count() >= hist_num_per_bin * hist_num_bins) {
+				if (stats.count() >= par.hist_num_per_bin * par.hist_num_bins) {
 					// Store the stats for a half-way division along the
 					// dimension with greatest extent, just in case the cell is
 					// too flat to choose a division site in any better way.
@@ -1360,28 +1393,28 @@ private:
 					R prime_diff_min = std::numeric_limits<R>::max();
 					R prime_diff_err_min = 0.;
 					Dim dim_min = dim_extent_max;
-					std::size_t bin_min = hist_num_bins / 2;
+					std::size_t bin_min = par.hist_num_bins / 2;
 					Stats<R> stats_lower_min;
 					Stats<R> stats_upper_min;
 					for (Dim dim = 0; dim < D; ++dim) {
 						// Total up the statistics in the histograms.
-						std::vector<Stats<R> > hist_stats(hist_num_bins);
-						for (std::size_t bin = 0; bin < hist_num_bins; ++bin) {
+						std::vector<Stats<R> > hist_stats(par.hist_num_bins);
+						for (std::size_t bin = 0; bin < par.hist_num_bins; ++bin) {
 							hist_stats[bin] = hist_stats_accum[dim][bin].total();
 						}
 						// Integrated statistics below and above the proposed
 						// division site.
 						std::vector<Stats<R> > hist_stats_lower;
 						std::vector<Stats<R> > hist_stats_upper;
-						hist_stats_lower.reserve(hist_num_bins - 1);
-						hist_stats_upper.reserve(hist_num_bins - 1);
+						hist_stats_lower.reserve(par.hist_num_bins - 1);
+						hist_stats_upper.reserve(par.hist_num_bins - 1);
 						// TODO: Use accumulators? The difficulty is that the
 						// total is needed every iteration to push onto the
 						// integrated histograms.
 						Stats<R> stats_lower_tot;
 						Stats<R> stats_upper_tot;
-						for (std::size_t bin = 0; bin < hist_num_bins - 1; ++bin) {
-							std::size_t rbin = hist_num_bins - bin - 1;
+						for (std::size_t bin = 0; bin < par.hist_num_bins - 1; ++bin) {
+							std::size_t rbin = par.hist_num_bins - bin - 1;
 							stats_lower_tot += hist_stats[bin];
 							stats_upper_tot += hist_stats[rbin];
 							hist_stats_lower.push_back(stats_lower_tot);
@@ -1389,16 +1422,16 @@ private:
 						}
 						// Store the statistics for a half-way division.
 						if (dim == dim_extent_max) {
-							std::size_t bin = hist_num_bins / 2;
+							std::size_t bin = par.hist_num_bins / 2;
 							std::size_t bin_lower = bin - 1;
-							std::size_t bin_upper = hist_num_bins - bin - 1;
+							std::size_t bin_upper = par.hist_num_bins - bin - 1;
 							stats_lower_half = hist_stats_lower[bin_lower];
 							stats_upper_half = hist_stats_upper[bin_upper];
 						}
 						// Test division at each internal bin boundary.
-						for (std::size_t bin = 1; bin < hist_num_bins; ++bin) {
+						for (std::size_t bin = 1; bin < par.hist_num_bins; ++bin) {
 							std::size_t bin_lower = bin - 1;
-							std::size_t bin_upper = hist_num_bins - bin - 1;
+							std::size_t bin_upper = par.hist_num_bins - bin - 1;
 							Stats<R> stats_lower = hist_stats_lower[bin_lower];
 							Stats<R> stats_upper = hist_stats_upper[bin_upper];
 							// If a bin doesn't have the counts needed to
@@ -1411,8 +1444,10 @@ private:
 							// the cell at this bin boundary. Need to scale by
 							// the volume fractions, to account for volume being
 							// included in the statistics measures.
-							R lambda_lower = R(bin) / hist_num_bins;
-							R lambda_upper = R(hist_num_bins - bin) / hist_num_bins;
+							R lambda_lower =
+								R(bin) / par.hist_num_bins;
+							R lambda_upper =
+								R(par.hist_num_bins - bin) / par.hist_num_bins;
 							R prime_diff_err;
 							R prime_diff = est_sqrt_m2_diff(
 								stats,
@@ -1433,22 +1468,24 @@ private:
 					// If the relative error is small enough, or if just too
 					// many samples have been requested, then make a division.
 					R prime_diff_err_req = std::abs(
-						prime_diff_rel_err_for_split * prime_diff_min);
-					R flat_prime_diff_err_req = flat_prime_diff_err_factor
+						par.prime_diff_rel_err_for_split * prime_diff_min);
+					R flat_prime_diff_err_req = par.flat_prime_diff_err_factor
 						* target_prime_diff / std::sqrt(leafs);
 					bool err_cond = (prime_diff_err_min <= prime_diff_err_req);
-					bool sample_cond = (stats.count() >= max_cell_explore_samples);
+					bool sample_cond = (stats.count() >= par.max_cell_explore_samples);
 					bool flat_cond = (flat_prime_diff_err_req >= -prime_diff_min);
 					if (err_cond || sample_cond || flat_cond) {
 						// TODO: Include a user-defined factor here.
 						if (std::abs(prime_diff_min) <= prime_diff_err_min) {
 							dim_min = dim_extent_max;
-							bin_min = hist_num_bins / 2;
+							bin_min = par.hist_num_bins / 2;
 							stats_lower_min = stats_lower_half;
 							stats_upper_min = stats_upper_half;
 						}
-						R lambda_lower = R(bin_min) / hist_num_bins;
-						R lambda_upper = R(hist_num_bins - bin_min) / hist_num_bins;
+						R lambda_lower =
+							R(bin_min) / par.hist_num_bins;
+						R lambda_upper =
+							R(par.hist_num_bins - bin_min) / par.hist_num_bins;
 						LeafData leaf_data[2] = {
 							{ lambda_lower * stats_lower_min },
 							{ lambda_upper * stats_upper_min },
@@ -1479,14 +1516,14 @@ private:
 				std::size_t hist_idx[D];
 				std::uniform_int_distribution<std::size_t> idx_dist(
 					0,
-					hist_num_bins - 1);
+					par.hist_num_bins - 1);
 				for (Dim dim = 0; dim < D; ++dim) {
 					std::size_t idx = idx_dist(rnd);
 					hist_idx[dim] = idx;
 					R lower = offset[dim]
-						+ extent[dim] * idx / hist_num_bins;
+						+ extent[dim] * idx / par.hist_num_bins;
 					R upper = offset[dim]
-						+ extent[dim] * (idx + 1) / hist_num_bins;
+						+ extent[dim] * (idx + 1) / par.hist_num_bins;
 					std::uniform_real_distribution<R> x_dist(lower, upper);
 					point[dim] = x_dist(rnd);
 				}
@@ -1625,7 +1662,6 @@ private:
 		Point<D, R> offset_local[TreeType::NUM_CHILDREN];
 		Point<D, R> extent_local[TreeType::NUM_CHILDREN];
 		CellHandle child[TreeType::NUM_CHILDREN];
-		Stats<R> stats_init;
 		#ifdef BUBBLE_USE_OPENMP
 		#pragma omp critical (bubble_tree)
 		#endif
@@ -1637,8 +1673,6 @@ private:
 					extent_local[child_idx] = _tree.extent_local(cell, child_idx);
 					child[child_idx] = _tree.child(cell, child_idx);
 				}
-			} else {
-				stats_init = _tree.leaf_data(cell).stats;
 			}
 		}
 		if (type == CellType::BRANCH) {
@@ -1672,15 +1706,12 @@ private:
 	}
 
 public:
-	CellBuilder(
-		F func,
-		Seed seed=std::random_device()()) :
-		CellBuilder(func, nullptr, nullptr, seed) { }
+	CellBuilder(F func) :
+		CellBuilder(func, nullptr, nullptr) { }
 	CellBuilder(
 			F func,
 			ExploreProgressReporter<R>* explore_progress_reporter,
-			TuneProgressReporter<R>* tune_progress_reporter,
-			Seed seed=std::random_device()()) :
+			TuneProgressReporter<R>* tune_progress_reporter) :
 			_func(func),
 			_tree(LeafData()),
 			_rnd_left(),
@@ -1688,12 +1719,16 @@ public:
 			explore_progress_reporter(explore_progress_reporter),
 			tune_progress_reporter(tune_progress_reporter) {
 		// Seed the left generator.
-		std::seed_seq seed_seq { seed };
+		std::seed_seq seed_seq { std::random_device()() };
 		_rnd_left.seed(seed_seq);
 	}
 
 	F const& func() const {
 		return _func;
+	}
+
+	TreeType const& tree() const {
+		return _tree;
 	}
 
 	// Validates the distribution function by sampling some number of points
@@ -1712,7 +1747,7 @@ public:
 		// catch some common errors.
 		CellHandle root = _tree.root();
 		StatsAccum<R> stats_accum;
-		for (std::size_t sample = 0; sample < check_samples; ++sample) {
+		for (std::size_t sample = 0; sample < par.check_samples; ++sample) {
 			// Assuming a volume of 1 for the unit hypercube.
 			Point<D, R> point;
 			for (Dim dim = 0; dim < D; ++dim) {
@@ -1779,7 +1814,7 @@ public:
 		extent.fill(1.);
 		queue.push({ _tree.root(), offset, extent });
 		std::vector<CellHandleSized> next_cells;
-		while (_tree.size() < max_explore_cells) {
+		while (_tree.size() < par.max_explore_cells) {
 			next_cells.clear();
 			for (std::size_t idx = 0; idx < 32; ++idx) {
 				if (queue.empty()) {
@@ -1790,7 +1825,7 @@ public:
 				next_cells.push_back(cell);
 			}
 			if (explore_progress_reporter != nullptr) {
-				R ratio = static_cast<R>(_tree.size()) / max_explore_cells;
+				R ratio = static_cast<R>(_tree.size()) / par.max_explore_cells;
 				R progress = clamp<R>(ratio, 0., 1.);
 				(*explore_progress_reporter)({ progress });
 			}
@@ -1836,13 +1871,13 @@ public:
 		extent.fill(1.);
 		CellHandle root = _tree.root();
 		std::size_t cells;
-		_scale_exp = scale_exp_est;
+		_scale_exp = par.scale_exp_est;
 		do {
 			cells = _tree.size();
 			R mean_tot = mean(root);
 			R prime_tot = prime(root);
 			R split_vol_tot = split_vol(root, _scale_exp);
-			R target_prime_diff = mean_tot * sqrt1p_1m(target_rel_var);
+			R target_prime_diff = mean_tot * sqrt1p_1m(par.target_rel_var);
 			std::size_t leafs = _tree.leaf_size();
 			// TODO: I've been using this to log behaviour of the exploration
 			// process, so I'll shamelessly leave it in here until proper
@@ -1853,7 +1888,7 @@ public:
 			// Estimate the true scaling exponent using a linear regression to
 			// some number of previous steps.
 			R scale_exp_regression = std::numeric_limits<R>::quiet_NaN();
-			if (_prev_primes.size() >= scale_exp_history_count) {
+			if (_prev_primes.size() >= par.scale_exp_history_count) {
 				R mean_log_cells = 0.;
 				R mean_log_prime = 0.;
 				R mean_log_cells_sq = 0.;
@@ -1862,8 +1897,8 @@ public:
 				for (std::size_t idx = _prev_leafs.size(); idx-- > 0; ) {
 					R history = std::log2(R(leafs) / _prev_leafs[idx]);
 					std::size_t history_count = _prev_leafs.size() - idx;
-					if (history > scale_exp_history
-							&& history_count >= scale_exp_history_count) {
+					if (history > par.scale_exp_history
+							&& history_count >= par.scale_exp_history_count) {
 						idx_start = idx;
 						break;
 					}
@@ -1881,16 +1916,16 @@ public:
 					-(mean_log_prime_cells - mean_log_prime * mean_log_cells)
 					/ (mean_log_cells_sq - sq(mean_log_cells));
 			}
-			if (scale_exp_adjust) {
+			if (par.scale_exp_adjust) {
 				if (!std::isfinite(scale_exp_regression)) {
-					_scale_exp = scale_exp_est;
+					_scale_exp = par.scale_exp_est;
 				} else if (!(scale_exp_regression >= 0.)) {
 					_scale_exp = 0.;
 				} else {
 					_scale_exp = scale_exp_regression;
 				}
 			} else {
-				_scale_exp = scale_exp_est;
+				_scale_exp = par.scale_exp_est;
 			}
 			// Estimate progress using regression scale exponent.
 			if (explore_progress_reporter != nullptr) {
@@ -1916,10 +1951,10 @@ public:
 					_scale_exp, leafs, mean_tot, split_vol_tot);
 			}
 			// TODO: Termination conditions should be revised.
-		} while (cells != _tree.size() && _tree.size() < max_explore_cells);
+		} while (cells != _tree.size() && _tree.size() < par.max_explore_cells);
 		update_total_stats();
 		// Calculate ideal number of leaf cells, and see if we surpassed it.
-		R target_prime_diff = _mean * sqrt1p_1m(target_rel_var);
+		R target_prime_diff = _mean * sqrt1p_1m(par.target_rel_var);
 		R ideal_leafs = pow_inv(
 			std::pow(_split_vol, _scale_exp + 1.) / target_prime_diff,
 			_scale_exp);
@@ -1944,30 +1979,31 @@ public:
 		// process. Since the accuracy of the volatilities might not be good if
 		// the cell generator is not well tuned, the tuning is done in stages
 		// with the volatilities recalculated between each stage.
-		for (std::size_t stage = 0; stage < tune_num_stages; ++stage) {
+		for (std::size_t stage = 0; stage < par.tune_num_stages; ++stage) {
 			R mean_tot = mean(root);
 			R prime_tot = prime(root);
 			R tune_vol_tot = tune_vol(root, prime_tot);
 			// Find the number of samples needed to reach the desired accuracy.
 			R rel_var = sq(prime_tot / mean_tot) - 1.;
-			R tune_accuracy = rel_var * tune_rel_accuracy;
-			R tune_fraction = clamp<R>(R(stage + 1) / tune_num_stages, 0., 1.);
+			R tune_accuracy = rel_var * par.tune_rel_accuracy;
+			R tune_fraction = clamp<R>(R(stage + 1) / par.tune_num_stages, 0., 1.);
 			R samples_real = clamp<R>(
 				0.5 * tune_fraction * sq(tune_vol_tot) / tune_accuracy,
 				// Multiply by 0.5 here so that the process of converting to `R`
 				// won't cause `samples_real` to overflow the maximum possible
 				// value.
-				0., 0.5 * std::numeric_limits<std::size_t>::max());
+				0.,
+				0.5 * static_cast<R>(std::numeric_limits<std::size_t>::max()));
 			std::size_t samples = static_cast<std::size_t>(samples_real);
 			std::size_t max_samples = static_cast<std::size_t>(
-				tune_fraction * max_tune_samples);
+				tune_fraction * par.max_tune_samples);
 			if (samples > max_samples) {
-				undertuned_samples = samples - max_tune_samples;
-				samples = max_tune_samples;
+				undertuned_samples = samples - par.max_tune_samples;
+				samples = par.max_tune_samples;
 			}
 			// Estimate progress using the tuning stage.
 			if (tune_progress_reporter != nullptr) {
-				R progress = clamp<R>(R(stage) / tune_num_stages, 0., 1.);
+				R progress = clamp<R>(R(stage) / par.tune_num_stages, 0., 1.);
 				(*explore_progress_reporter)({ progress });
 			}
 			// Sample from the cell generator.
@@ -1985,68 +2021,6 @@ public:
 		}
 		update_total_stats();
 		return undertuned_samples;
-	}
-
-	// Writes to an output stream. A `CellBuilder` can be written to, but not
-	// read from, a stream. It reduces all of the statistics known about the
-	// distribution down to a minimal set of data that can be constructed by a
-	// `CellGenerator`.
-	void write(std::ostream& os) const {
-		// Write identification string.
-		os.write(STREAM_HEAD, sizeof(STREAM_HEAD));
-		// Write sizes of important types, just as a quick validation.
-		std::size_t size_size_t = sizeof(std::size_t);
-		std::size_t size_tag = sizeof(unsigned char);
-		std::size_t size_dim = sizeof(Dim);
-		std::size_t size_split = sizeof(R);
-		std::size_t size_prime = sizeof(R);
-		os.write(reinterpret_cast<char const*>(&size_size_t), sizeof(std::size_t));
-		os.write(reinterpret_cast<char const*>(&size_tag), sizeof(std::size_t));
-		os.write(reinterpret_cast<char const*>(&size_dim), sizeof(std::size_t));
-		os.write(reinterpret_cast<char const*>(&size_split), sizeof(std::size_t));
-		os.write(reinterpret_cast<char const*>(&size_prime), sizeof(std::size_t));
-		// Write total number of cells.
-		std::size_t num_cells = _tree.size();
-		os.write(reinterpret_cast<char const*>(&num_cells), sizeof(std::size_t));
-		if (!os) {
-			throw std::runtime_error("failed to write header info");
-		}
-		std::vector<CellHandle> cells;
-		cells.push_back(_tree.root());
-		while (!cells.empty()) {
-			CellHandle cell = cells.back();
-			cells.pop_back();
-			if (_tree.type(cell) == CellType::BRANCH) {
-				typename TreeType::Branch const& branch = _tree.branch(cell);
-				// Branches store the following:
-				// * Tag (unsigned char).
-				// * Split dimension (unsigned char).
-				// * Split location (real).
-				unsigned char tag = 0;
-				os.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
-				os.write(reinterpret_cast<char const*>(&branch.dim), sizeof(Dim));
-				os.write(reinterpret_cast<char const*>(&branch.split), sizeof(R));
-				// Add branch children to be processed next, in order.
-				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
-					cells.push_back(_tree.child(cell, child_idx));
-				}
-			} else {
-				// Leafs store the following:
-				// * Tag (unsigned char).
-				// * Prime (integration real).
-				unsigned char tag = 1;
-				R prime = _tree.leaf_data(cell).stats.est_sqrt_m2();
-				os.write(reinterpret_cast<char const*>(&tag), sizeof(unsigned char));
-				os.write(reinterpret_cast<char const*>(&prime), sizeof(R));
-			}
-			if (!os) {
-				throw std::runtime_error("failed to write cell");
-			}
-		}
-	}
-
-	TreeType const& tree() const {
-		return _tree;
 	}
 
 	R mean(R* err_out=nullptr) const {
@@ -2075,9 +2049,29 @@ public:
 	}
 };
 
+// Convenience functions to allow for template parameter inference.
 template<Dim D, typename R, typename F>
+inline CellBuilder<D, R, F> make_builder(F func) {
+	return CellBuilder<D, R, F>(func);
+}
+template<Dim D, typename R, typename F>
+inline CellBuilder<D, R, F> make_builder(
+		F func,
+		ExploreProgressReporter<R>* explore_progress_reporter,
+		TuneProgressReporter<R>* tune_progress_reporter) {
+	return CellBuilder<D, R, F>(
+		func,
+		explore_progress_reporter,
+		tune_progress_reporter);
+}
+
+template<Dim D, typename R>
 class CellGenerator final {
-	using Rnd = std::mt19937_64;
+	template<Dim D1, typename R1>
+	friend inline CellGenerator<D1, R1> make_generator();
+	template<Dim D1, typename R1, typename F1>
+	friend inline CellGenerator<D1, R1> make_generator(
+		CellBuilder<D1, R1, F1> const& builder);
 
 	static_assert(
 		std::is_floating_point<R>::value,
@@ -2085,11 +2079,8 @@ class CellGenerator final {
 	static_assert(
 		std::numeric_limits<R>::is_iec559,
 		"R must satisfy IEC 559.");
-	static_assert(
-		IsDistribution<D, R, F>::value,
-		"F must be a valid distribution type (able to take a Point<D, R> to a "
-		"type convertible to R with noexcept).");
 
+public:
 	// The cells store the prime value.
 	struct Data final {
 		R prime;
@@ -2097,14 +2088,10 @@ class CellGenerator final {
 		Data(R prime) : prime(prime) { }
 	};
 	using TreeType = Tree<KdBranch<D, R>, Data>;
-	using Builder = CellBuilder<D, R, F>;
 
-	// Function.
-	F _func;
+private:
 	// Spatial tree.
 	TreeType _tree;
-	// Random number engine.
-	Rnd _rnd;
 
 	// Fills in the prime value for a cell and all of its descendents,
 	// recursively. This is done on load so that parent prime values don't have
@@ -2158,7 +2145,7 @@ class CellGenerator final {
 				}
 			}
 		} else if (_tree.type(cell) == CellType::LEAF) {
-			// Rescale the function evaluation point.
+			// Rescale by the jacobian.
 			R volume = 1;
 			for (Dim dim = 0; dim < D; ++dim) {
 				(*point_out)[dim] = offset[dim];
@@ -2166,44 +2153,28 @@ class CellGenerator final {
 				volume *= extent[dim];
 			}
 			R weight_norm = _tree.leaf_data(cell).prime;
-			*weight_out = (volume * _func(*point_out)) / weight_norm;
+			*weight_out = volume / weight_norm;
 		}
 	}
 
-public:
-	// Creates a `CellGenerator` for use with a specific distribution.
-	CellGenerator(
-			F func,
-			Seed seed=std::random_device()()) :
-			_func(func),
-			_tree(Data{ 1. }),
-			_rnd() {
-		std::seed_seq seed_seq { seed };
-		_rnd.seed(seed_seq);
-		fill_primes(_tree.root());
+	// Utility stream read/write functions.
+	template<typename T>
+	static std::ostream& write(std::ostream& os, T const& val) {
+		return os.write(reinterpret_cast<char const*>(&val), sizeof(T));
 	}
-	// Creates a `CellGenerator` directly from a `CellBuilder`. This should only
-	// be used for testing purposes on small generators. For large ones, this
-	// can lead to running out of memory very quickly.
-	CellGenerator(
-			Builder const& init,
-			Seed seed=std::random_device()()) :
-			_func(init._func),
-			_tree(init._tree.template transform<Data, Data>(
-				[](typename Builder::BranchData data) {
-					return Data { data.prime };
-				},
-				[](typename Builder::LeafData data) {
-					return Data { data.stats.est_sqrt_m2() };
-				})),
-			_rnd() {
-		std::seed_seq seed_seq { seed };
-		_rnd.seed(seed_seq);
+	template<typename T>
+	static std::istream& read(std::istream& is, T& val) {
+		return is.read(reinterpret_cast<char*>(&val), sizeof(T));
+	}
+
+public:
+	// Creates an empty `CellGenerator`.
+	CellGenerator() : _tree(Data{ 1. }) {
 		fill_primes(_tree.root());
 	}
 
-	F const& func() const {
-		return _func;
+	TreeType const& tree() const {
+		return _tree;
 	}
 
 	// Returns the prime value. This can be combined with the weights to
@@ -2217,101 +2188,15 @@ public:
 		}
 	}
 
-	// Reads from an input stream.
-	void read(std::istream& is) {
-		// Read identifier string.
-		char head[sizeof(STREAM_HEAD)];
-		is.read(head, sizeof(STREAM_HEAD));
-		for(std::size_t idx = 0; idx < sizeof(STREAM_HEAD); ++idx) {
-			if (head[idx] != STREAM_HEAD[idx]) {
-				throw std::runtime_error("file header mismatch");
-			}
-		}
-		// Read important data sizes.
-		std::size_t size_size_t;
-		std::size_t size_tag;
-		std::size_t size_dim;
-		std::size_t size_split;
-		std::size_t size_prime;
-		// `std::size_t` is especially important because the sizes themselves
-		// are of that size.
-		is.read(reinterpret_cast<char*>(&size_size_t), sizeof(std::size_t));
-		if (size_size_t != sizeof(std::size_t)) {
-			throw std::runtime_error("std::size_t size mismatch");
-		}
-		is.read(reinterpret_cast<char*>(&size_tag), sizeof(std::size_t));
-		is.read(reinterpret_cast<char*>(&size_dim), sizeof(std::size_t));
-		is.read(reinterpret_cast<char*>(&size_split), sizeof(std::size_t));
-		is.read(reinterpret_cast<char*>(&size_prime), sizeof(std::size_t));
-		if (size_tag != sizeof(unsigned char)) {
-			throw std::runtime_error("unsigned char size mismatch");
-		} else if (size_dim != sizeof(Dim)) {
-			throw std::runtime_error("Dim size mismatch");
-		} else if (size_split != sizeof(R)) {
-			throw std::runtime_error("R size mismatch");
-		} else if (size_prime != sizeof(R)) {
-			throw std::runtime_error("R size mismatch");
-		}
-		// Read number of cells.
-		std::size_t num_cells;
-		is.read(reinterpret_cast<char*>(&num_cells), sizeof(std::size_t));
-		if (!is) {
-			throw std::runtime_error("failed to read header info");
-		}
-		// Read the cells themselves.
-		_tree.clear(Data{ 0. });
-		_tree.reserve(num_cells);
-		std::vector<CellHandle> cells;
-		cells.push_back(_tree.root());
-		while (!cells.empty()) {
-			// Read the next cell from the stream.
-			CellHandle cell = cells.back();
-			cells.pop_back();
-			unsigned char tag;
-			is.read(reinterpret_cast<char*>(&tag), sizeof(unsigned char));
-			if (tag == 0) {
-				// Branch.
-				Dim dim;
-				R split;
-				is.read(reinterpret_cast<char*>(&dim), sizeof(Dim));
-				is.read(reinterpret_cast<char*>(&split), sizeof(R));
-				_tree.split(
-					cell,
-					typename TreeType::Branch(dim, split),
-					Data(0.),
-					{ Data(0.), Data(0.) });
-				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
-					cells.push_back(_tree.child(cell, child_idx));
-				}
-			} else if (tag == 1) {
-				// Leaf.
-				R prime;
-				is.read(reinterpret_cast<char*>(&prime), sizeof(R));
-				_tree.leaf_data(cell).prime = prime;
-			} else {
-				throw std::runtime_error("invalid tag");
-			}
-			if (!is) {
-				throw std::runtime_error("failed to read cell");
-			}
-		}
-		if (_tree.size() > num_cells) {
-			throw std::runtime_error("wrong number of cells");
-		}
-		if (is.peek() != std::istream::traits_type::eof()) {
-			throw std::runtime_error("expected EOF");
-		}
-		fill_primes(_tree.root());
-	}
-
 	// Samples.
-	void generate(R* weight_out, Point<D, R>* point_out) {
+	template<typename Rnd>
+	void generate(Rnd& rnd, R* weight_out, Point<D, R>* point_out) const {
 		// Generate random number.
 		std::uniform_real_distribution<R> dist(0, 1);
-		R choose_cell = dist(_rnd);
+		R choose_cell = dist(rnd);
 		Point<D, R> choose_point;
 		for (Dim dim = 0; dim < D; ++dim) {
-			choose_point[dim] = dist(_rnd);
+			choose_point[dim] = dist(rnd);
 		}
 		// Draw from the root cell.
 		Point<D, R> offset;
@@ -2325,63 +2210,166 @@ public:
 			weight_out, point_out);
 	}
 
-	// Sample with rejection sampling. Note that no events are actually
-	// rejected. Instead, some events are re-weighted to zero. These zero-weight
-	// events can then be rejected by the user. This ensures that the average
-	// weight remains unchanged as compared to standard generation (although
-	// variance of weights will be reduced). The scale sets the amount of
-	// rejection sampling to apply, with only the events with weights smaller
-	// than the scale being subject to rejection.
-	void generate_rej(R scale, R* weight_out, Point<D, R>* point_out) {
-		if (scale == 0.) {
-			generate(weight_out, point_out);
-		} else {
-			std::uniform_real_distribution<R> dist(0., 1.);
-			generate(weight_out, point_out);
-			R rej = dist(_rnd);
-			if (*weight_out < rej * scale) {
-				// Event is rejected.
-				*weight_out = 0.;
-			} else if (*weight_out < scale) {
-				// Event is accepted.
-				*weight_out = scale;
+	// Samples with re-weighting by distribution.
+	template<typename Rnd, typename F>
+	void generate(Rnd& rnd, F const& func, R* weight_out, Point<D, R>* point_out) const {
+		static_assert(
+			IsDistribution<D, R, F>::value,
+			"F must be a valid distribution type (able to take a Point<D, R> "
+			"to a type convertible to R with noexcept).");
+		generate(rnd, weight_out, point_out);
+		*weight_out *= func(*point_out);
+	}
+
+	// Writes to an output stream using a binary format.
+	std::ostream& write(std::ostream& os) const {
+		std::vector<CellHandle> cells;
+		std::size_t size_size_t, size_tag, size_dim, size_split, size_prime;
+		// Write identification string.
+		if (!os.write(STREAM_HEAD, sizeof(STREAM_HEAD))) { goto error; }
+		// Write sizes of important types, just as a quick validation.
+		size_size_t = sizeof(std::size_t);
+		size_tag = sizeof(unsigned char);
+		size_dim = sizeof(Dim);
+		size_split = sizeof(R);
+		size_prime = sizeof(R);
+		if (!write(os, size_size_t)) { goto error; };
+		if (!write(os, size_tag)) { goto error; };
+		if (!write(os, size_dim)) { goto error; };
+		if (!write(os, size_split)) { goto error; };
+		if (!write(os, size_prime)) { goto error; };
+		// Write total number of cells.
+		if (!write(os, _tree.size())) { goto error; }
+		cells.push_back(_tree.root());
+		while (!cells.empty()) {
+			CellHandle cell = cells.back();
+			cells.pop_back();
+			if (_tree.type(cell) == CellType::BRANCH) {
+				typename TreeType::Branch const& branch = _tree.branch(cell);
+				// Branches store the following:
+				// * Tag (unsigned char).
+				// * Split dimension (unsigned char).
+				// * Split location (real).
+				unsigned char tag = 0;
+				if (!write(os, tag)) { goto error; }
+				if (!write(os, branch.dim)) { goto error; }
+				if (!write(os, branch.split)) { goto error; }
+				// Add branch children to be processed next, in order.
+				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+					cells.push_back(_tree.child(cell, child_idx));
+				}
 			} else {
-				// Event is unchanged.
+				// Leafs store the following:
+				// * Tag (unsigned char).
+				// * Prime (integration real).
+				unsigned char tag = 1;
+				R prime = _tree.leaf_data(cell).prime;
+				if (!write(os, tag)) { goto error; }
+				if (!write(os, prime)) { goto error; }
 			}
 		}
+		return os;
+	error:
+		os.setstate(std::ios_base::failbit);
+		return os;
+	}
+
+	// Reads from an input stream using a binary format.
+	std::istream& read(std::istream& is) {
+		std::vector<CellHandle> cells;
+		std::size_t size_size_t, size_tag, size_dim, size_split, size_prime;
+		// Read identifier string.
+		char head[sizeof(STREAM_HEAD)];
+		if (!is.read(head, sizeof(STREAM_HEAD))) { goto error; }
+		for(std::size_t idx = 0; idx < sizeof(STREAM_HEAD); ++idx) {
+			if (head[idx] != STREAM_HEAD[idx]) {
+				goto error;
+			}
+		}
+		// Read important data sizes.
+		if (!read(is, size_size_t)) { goto error; }
+		if (!read(is, size_tag)) { goto error; }
+		if (!read(is, size_dim)) { goto error; }
+		if (!read(is, size_split)) { goto error; }
+		if (!read(is, size_prime)) { goto error; }
+		if (size_size_t != sizeof(std::size_t)
+				|| size_tag != sizeof(unsigned char)
+				|| size_dim != sizeof(Dim)
+				|| size_split != sizeof(R)
+				|| size_prime != sizeof(R)) {
+			goto error;
+		}
+		// Read number of cells.
+		std::size_t num_cells;
+		if (!read(is, num_cells)) { goto error; }
+		// Read the cells themselves.
+		_tree.clear(Data{ 0. });
+		_tree.reserve(num_cells);
+		cells.push_back(_tree.root());
+		while (!cells.empty()) {
+			// Read the next cell from the stream.
+			CellHandle cell = cells.back();
+			cells.pop_back();
+			unsigned char tag;
+			if (!read(is, tag)) { goto error; }
+			if (tag == 0) {
+				// Branch.
+				Dim dim;
+				R split;
+				if (!read(is, dim)) { goto error; }
+				if (!read(is, split)) { goto error; }
+				_tree.split(
+					cell,
+					typename TreeType::Branch(dim, split),
+					Data(0.),
+					{ Data(0.), Data(0.) });
+				for (std::size_t child_idx = 0; child_idx < TreeType::NUM_CHILDREN; ++child_idx) {
+					cells.push_back(_tree.child(cell, child_idx));
+				}
+			} else if (tag == 1) {
+				// Leaf.
+				R prime;
+				if (!read(is, prime)) { goto error; }
+				_tree.leaf_data(cell).prime = prime;
+			} else {
+				goto error;
+			}
+		}
+		if (_tree.size() > num_cells) {
+			goto error;
+		}
+		fill_primes(_tree.root());
+		return is;
+	error:
+		// On error, set a default value.
+		_tree.clear(Data{ 0. });
+		is.setstate(std::ios_base::failbit);
+		return is;
 	}
 };
 
 // Convenience functions to allow for template parameter inference.
-template<Dim D, typename R, typename F>
-inline CellBuilder<D, R, F> make_builder(
-		F func,
-		Seed seed=std::random_device()()) {
-	return CellBuilder<D, R, F>(func, seed);
+template<Dim D, typename R>
+inline CellGenerator<D, R> make_generator() {
+	return CellGenerator<D, R>();
 }
 template<Dim D, typename R, typename F>
-inline CellBuilder<D, R, F> make_builder(
-		F func,
-		ExploreProgressReporter<R>* explore_progress_reporter,
-		TuneProgressReporter<R>* tune_progress_reporter,
-		Seed seed=std::random_device()()) {
-	return CellBuilder<D, R, F>(
-		func,
-		explore_progress_reporter,
-		tune_progress_reporter,
-		seed);
-}
-template<Dim D, typename R, typename F>
-inline CellGenerator<D, R, F> make_generator(
-		F func,
-		Seed seed=std::random_device()()) {
-	return CellGenerator<D, R, F>(func, seed);
-}
-template<Dim D, typename R, typename F>
-inline CellGenerator<D, R, F> make_generator(
-		CellBuilder<D, R, F> const& builder,
-		Seed seed=std::random_device()()) {
-	return CellGenerator<D, R, F>(builder, seed);
+inline CellGenerator<D, R> make_generator(
+		CellBuilder<D, R, F> const& builder) {
+	using Generator = CellGenerator<D, R>;
+	using Builder = CellBuilder<D, R, F>;
+	CellGenerator<D, R> result;
+	// Creates a `CellGenerator` directly from a `CellBuilder`.
+	result._tree = builder._tree.template transform<
+			typename Generator::Data, typename Generator::Data>(
+		[](typename Builder::BranchData) {
+			return typename Generator::Data { 0. };
+		},
+		[](typename Builder::LeafData data) {
+			return typename Generator::Data { data.stats.est_sqrt_m2() };
+		});
+	result.fill_primes(result._tree.root());
+	return result;
 }
 
 }

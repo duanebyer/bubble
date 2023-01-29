@@ -129,7 +129,7 @@ Monte-Carlo event generators produce identical independent random events
 
 \begin_inset Formula 
 \begin{equation}
-\mathrm{E}_{\rho}\left[\mathcal{O}\right]=\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)\mathcal{O}\left(x\right)=\mathrm{E}_{P}\left[\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)\right]\label{eq:observable-def}
+\mathrm{E}_{\rho}\left[\mathcal{O}\right]\equiv\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)\mathcal{O}\left(x\right)=\mathrm{E}_{P}\left[\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)\right]\label{eq:observable-def}
 \end{equation}
 
 \end_inset
@@ -172,7 +172,7 @@ For these properties to hold, the weight function
 \begin{align}
 \mathrm{E}_{P}\left[\frac{1}{N}\sum_{n=1}^{N}w\left(X_{n}\right)\mathcal{O}\left(X_{n}\right)\right] & =\frac{1}{N}\sum_{n=1}^{N}\int_{\Omega}\mathrm{d}x_{n}\:P\left(x_{n}\right)w\left(x_{n}\right)\mathcal{O}\left(x_{n}\right)\nonumber \\
  & =\int_{\Omega}\mathrm{d}x\:P\left(x\right)w\left(x\right)\mathcal{O}\left(x\right)\nonumber \\
-w\left(x\right) & =\frac{\rho\left(x\right)}{P\left(x\right)}\label{eq:weight-def}
+w\left(x\right) & \equiv\frac{\rho\left(x\right)}{P\left(x\right)}\label{eq:weight-def}
 \end{align}
 
 \end_inset
@@ -210,7 +210,7 @@ y), which can be modeled as an observable over the distribution.
 
 \begin_layout Standard
 We will define the efficiency of a generator to be the ratio 
-\begin_inset Formula $\varepsilon=\sqrt{N_{\text{eff}}/N}$
+\begin_inset Formula $\varepsilon\equiv\sqrt{N_{\text{eff}}/N}$
 \end_inset
 
 .
@@ -281,7 +281,7 @@ A related quantity to the efficiency is the relative variance of the weights
 
 \begin_inset Formula 
 \begin{equation}
-\sigma_{w}^{2}=\frac{\mathrm{Var}\left[w\left(X\right)\right]}{\mathrm{E}\left[w\left(X\right)\right]^{2}}=\frac{\mathrm{E}\left[w\left(X\right)^{2}\right]}{\mathrm{E}\left[w\left(X\right)\right]^{2}}-1=\frac{1}{\varepsilon^{2}}-1\label{eq:relative-variance-def}
+\sigma_{w}^{2}\equiv\frac{\mathrm{Var}\left[w\left(X\right)\right]}{\mathrm{E}\left[w\left(X\right)\right]^{2}}=\frac{\mathrm{E}\left[w\left(X\right)^{2}\right]}{\mathrm{E}\left[w\left(X\right)\right]^{2}}-1=\frac{1}{\varepsilon^{2}}-1\label{eq:relative-variance-def}
 \end{equation}
 
 \end_inset
@@ -323,7 +323,7 @@ Cell generators
 \end_layout
 
 \begin_layout Standard
-For this paper, we will consider a special class of generators called 
+We will focus on a special class of generators called 
 \emph on
 cell generators
 \emph default
@@ -385,7 +385,7 @@ prime
 
 \begin_inset Formula 
 \begin{equation}
-P\left(x\right)=\frac{1}{p}\begin{cases}
+P\left(x\right)\equiv\frac{1}{p}\begin{cases}
 p_{1} & x\in\Omega_{1}\\
 p_{2} & x\in\Omega_{2}\\
 \vdots & \vdots\\
@@ -518,8 +518,8 @@ From this expression, we can see that for a cell generator, the optimal
 
 \begin_inset Formula 
 \begin{align}
-\mu_{\rho,k} & =\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)\nonumber \\
-\sigma_{\rho,k}^{2} & =\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\left(\rho\left(x\right)-\mu_{\rho,k}\right)^{2}\label{eq:distribution-moments-def}
+\mu_{\rho,k} & \equiv\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)\nonumber \\
+\sigma_{\rho,k}^{2} & \equiv\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\left(\rho\left(x\right)-\mu_{\rho,k}\right)^{2}\label{eq:distribution-moments-def}
 \end{align}
 
 \end_inset
@@ -732,7 +732,7 @@ Tuning a single cell
 
 \begin_layout Standard
 To find the optimal 
-\begin_inset Formula $p_{k}$
+\begin_inset Formula $p$
 \end_inset
 
  for a single cell through Monte-Carlo integration without previous knowledge
@@ -745,12 +745,12 @@ To find the optimal
 \end_inset
 
  identical independent variables 
-\begin_inset Formula $X_{n}\sim\text{Uniform}\left(\Omega_{k}\right)$
+\begin_inset Formula $X_{n}\sim\text{Uniform}\left(\Omega\right)$
 \end_inset
 
 .
  Then, define 
-\begin_inset Formula $R_{n}=\rho\left(X_{n}\right)$
+\begin_inset Formula $R_{n}\equiv\rho\left(X_{n}\right)$
 \end_inset
 
  satisfying
@@ -760,10 +760,10 @@ To find the optimal
 
 \begin_inset Formula 
 \begin{align*}
-\mathrm{E}\left[R_{n}\right] & =\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)\\
- & =\mu_{\rho,k}\\
-\mathrm{E}\left[R_{n}^{2}\right] & =\frac{1}{V_{k}}\int_{\Omega_{k}}\mathrm{d}x\:\rho\left(x\right)^{2}\\
- & =\mu_{\rho,k}^{2}+\sigma_{\rho,k}^{2}
+\mathrm{E}\left[R_{n}\right] & =\frac{1}{V}\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)\\
+ & =\mu_{\rho}\\
+\mathrm{E}\left[R_{n}^{2}\right] & =\frac{1}{V}\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)^{2}\\
+ & =\mu_{\rho}^{2}+\sigma_{\rho}^{2}
 \end{align*}
 
 \end_inset
@@ -772,23 +772,23 @@ To find the optimal
 \begin_inset Newline newline
 \end_inset
 
-The means 
-\begin_inset Formula $\overline{R}$
+Then the means 
+\begin_inset Formula $\hat{\mu}_{R}$
 \end_inset
 
  and 
-\begin_inset Formula $\overline{R^{2}}$
+\begin_inset Formula $\hat{\mu}_{R^{2}}$
 \end_inset
 
- can be used as estimators for these quantities.
+ can be used as estimators.
 \begin_inset Newline newline
 \end_inset
 
 
 \begin_inset Formula 
 \begin{align*}
-\mathrm{E}\left[\overline{R}\right] & =\mu_{R}=\mu_{\rho,k} & \mathrm{Var}\left[\overline{R}\right] & =\frac{\sigma_{R}^{2}}{N}=\frac{\sigma_{\rho,k}^{2}}{N}\\
-\mathrm{E}\left[\overline{R^{2}}\right] & =\mu_{R^{2}}=\mu_{\rho,k}^{2}+\sigma_{\rho,k}^{2} & \mathrm{Var}\left[\overline{R^{2}}\right] & =\frac{\sigma_{R^{2}}^{2}}{N}
+\mathrm{E}\left[\hat{\mu}_{R}\right] & =\mu_{R}=\mu_{\rho} & \mathrm{Var}\left[\hat{\mu}_{R}\right] & =\frac{\sigma_{R}^{2}}{N}=\frac{\sigma_{\rho}^{2}}{N}\\
+\mathrm{E}\left[\hat{\mu}_{R^{2}}\right] & =\mu_{R^{2}}=\mu_{\rho}^{2}+\sigma_{\rho}^{2} & \mathrm{Var}\left[\hat{\mu}_{R^{2}}\right] & =\frac{\sigma_{R^{2}}^{2}}{N}
 \end{align*}
 
 \end_inset
@@ -798,17 +798,18 @@ The means
 
 \begin_layout Standard
 For finding the optimal prime 
-\begin_inset Formula $p_{k}^{(0)}$
+\begin_inset Formula $p^{(0)}$
 \end_inset
 
-, a slightly different estimator is needed.
+ (assuming the cell is part of a larger cell generator, and following the
+ prescription of section 2), a slightly different estimator is needed.
 \begin_inset Newline newline
 \end_inset
 
 
 \begin_inset Formula 
 \[
-p_{k}^{(0)}=V_{k}\sqrt{\mathrm{E}\left[R^{2}\right]}
+p^{(0)}=V\sqrt{\mathrm{E}\left[R^{2}\right]}
 \]
 
 \end_inset
@@ -818,11 +819,11 @@ p_{k}^{(0)}=V_{k}\sqrt{\mathrm{E}\left[R^{2}\right]}
 \end_inset
 
 Let 
-\begin_inset Formula $P_{k}$
+\begin_inset Formula $\hat{p}$
 \end_inset
 
  be an estimator for 
-\begin_inset Formula $p_{k}^{(0)}$
+\begin_inset Formula $p^{(0)}$
 \end_inset
 
 .
@@ -833,7 +834,7 @@ Let
 
 \begin_inset Formula 
 \[
-P_{k}^{\mathrm{naive}}=V_{k}\sqrt{\overline{R^{2}}}
+\hat{p}^{\mathrm{naive}}\equiv V\sqrt{\hat{\mu}_{R^{2}}}
 \]
 
 \end_inset
@@ -845,17 +846,17 @@ P_{k}^{\mathrm{naive}}=V_{k}\sqrt{\overline{R^{2}}}
 However, this estimator has some bias due to the non-linearity of the square
  root.
  To correct that, assume that the estimator 
-\begin_inset Formula $\overline{R^{2}}$
+\begin_inset Formula $\hat{\mu}_{R^{2}}$
 \end_inset
 
  differs from its mean by some small error 
-\begin_inset Formula $\delta\overline{R^{2}}$
+\begin_inset Formula $\delta\hat{\mu}_{R^{2}}$
 \end_inset
 
 .
  Then, use the Taylor expansion of the square root to correct the bias in
  
-\begin_inset Formula $P_{k}^{\mathrm{naive}}$
+\begin_inset Formula $\hat{p}^{\mathrm{naive}}$
 \end_inset
 
  to leading order.
@@ -865,9 +866,9 @@ However, this estimator has some bias due to the non-linearity of the square
 
 \begin_inset Formula 
 \begin{align*}
-P_{k}^{\mathrm{naive}} & =V_{k}\sqrt{\mu_{R^{2}}+\delta\overline{R^{2}}}\\
- & =V_{k}\sqrt{\mu_{R^{2}}}\left(1+\frac{1}{2}\frac{\delta\overline{R^{2}}}{\mu_{R^{2}}}-\frac{1}{8}\left(\frac{\delta\overline{R^{2}}}{\mu_{R^{2}}}\right)^{2}+O\left(\frac{1}{N^{3}}\right)\right)\\
-P_{k}^{\mathrm{naive}}+\frac{1}{8}V_{k}\sqrt{\mu_{R^{2}}}\left(\frac{\delta\overline{R^{2}}}{\mu_{R^{2}}}\right)^{2} & =V_{k}\sqrt{\mu_{R^{2}}}\left(1+\frac{1}{2}\frac{\delta\overline{R^{2}}}{\mu_{R^{2}}}+O\left(\frac{1}{N^{3}}\right)\right)
+\hat{p}^{\mathrm{naive}} & =V\sqrt{\mu_{R^{2}}+\delta\hat{\mu}_{R^{2}}}\\
+ & =V\sqrt{\mu_{R^{2}}}\left(1+\frac{1}{2}\frac{\delta\hat{\mu}_{R^{2}}}{\mu_{R^{2}}}-\frac{1}{8}\left(\frac{\delta\hat{\mu}_{R^{2}}}{\mu_{R^{2}}}\right)^{2}+O\left(\frac{1}{N^{3}}\right)\right)\\
+\hat{p}^{\mathrm{naive}}+\frac{1}{8}V\sqrt{\mu_{R^{2}}}\left(\frac{\delta\hat{\mu}_{R^{2}}}{\mu_{R^{2}}}\right)^{2} & =V\sqrt{\mu_{R^{2}}}\left(1+\frac{1}{2}\frac{\delta\hat{\mu}_{R^{2}}}{\mu_{R^{2}}}+O\left(\frac{1}{N^{3}}\right)\right)
 \end{align*}
 
 \end_inset
@@ -877,7 +878,7 @@ P_{k}^{\mathrm{naive}}+\frac{1}{8}V_{k}\sqrt{\mu_{R^{2}}}\left(\frac{\delta\over
 \end_inset
 
 Since 
-\begin_inset Formula $\mathrm{E}\left[\delta\overline{R^{2}}\right]=0$
+\begin_inset Formula $\mathrm{E}\left[\delta\hat{\mu}_{R^{2}}\right]=0$
 \end_inset
 
 , the term on right-hand-side has the correct expectation to order 
@@ -886,7 +887,7 @@ Since
 
 .
  Furthermore, since the next term is of an odd order, and since 
-\begin_inset Formula $\delta\overline{R^{2}}$
+\begin_inset Formula $\delta\hat{\mu}_{R^{2}}$
 \end_inset
 
  is likely nearly even due to central limit theorem, in practice the right-hand-
@@ -900,12 +901,12 @@ side will be accurate to order
 \end_inset
 
 , which can be replaced with the unbiased estimate 
-\begin_inset Formula $\overline{R^{2}}$
+\begin_inset Formula $\hat{\mu}_{R^{2}}$
 \end_inset
 
  without losing the order of accuracy.
  Altogether, this gives the following good estimator for 
-\begin_inset Formula $p_{k}^{\left(0\right)}$
+\begin_inset Formula $p^{\left(0\right)}$
 \end_inset
 
 .
@@ -915,8 +916,8 @@ side will be accurate to order
 
 \begin_inset Formula 
 \begin{align}
-P_{k} & =P_{k}^{\mathrm{naive}}+\frac{1}{8N}V_{k}\sqrt{\overline{R^{2}}}\left(\frac{S_{R^{2}}}{\overline{R^{2}}}\right)^{2}\nonumber \\
- & =V_{k}\sqrt{\overline{R^{2}}}\left(1+\frac{1}{8N}\left(\frac{S_{R^{2}}}{\overline{R^{2}}}\right)^{2}\right)\label{eq:prime-estimator-def}
+\hat{p} & \equiv\hat{p}^{\mathrm{naive}}+\frac{1}{8N}V\sqrt{\hat{\mu}_{R^{2}}}\left(\frac{\hat{\sigma}_{R^{2}}^{2}}{\hat{\mu}_{R^{2}}^{2}}\right)\nonumber \\
+ & =V\sqrt{\hat{\mu}_{R^{2}}}\left(1+\frac{1}{8N}\left(\frac{\hat{\sigma}_{R^{2}}^{2}}{\hat{\mu}_{R^{2}}^{2}}\right)\right)\label{eq:prime-estimator-def}
 \end{align}
 
 \end_inset
@@ -927,8 +928,8 @@ P_{k} & =P_{k}^{\mathrm{naive}}+\frac{1}{8N}V_{k}\sqrt{\overline{R^{2}}}\left(\f
 \begin_layout Standard
 \begin_inset Formula 
 \begin{align*}
-\mathrm{E}\left[P_{k}\right] & =p_{k}^{(0)}+O\left(\frac{1}{N^{3}}\right) & \mathrm{Var}\left[P_{k}\right] & =\frac{1}{4}\left(p_{k}^{(0)}\right)^{2}\frac{\mathrm{Var}\left[\overline{R^{2}}\right]}{\mathrm{E}\left[\overline{R}\right]^{2}}+O\left(\frac{1}{N^{2}}\right)\\
- &  &  & =\frac{1}{4N}\left(p_{k}^{(0)}\right)^{2}\frac{\sigma_{R^{2}}^{2}}{\mu_{R^{2}}^{2}}+O\left(\frac{1}{N^{2}}\right)
+\mathrm{E}\left[\hat{p}\right] & =p^{(0)}+O\left(\frac{1}{N^{3}}\right) & \mathrm{Var}\left[\hat{p}\right] & =\frac{1}{4}\left(p^{(0)}\right)^{2}\frac{\mathrm{Var}\left[\hat{\mu}_{R^{2}}\right]}{\mathrm{E}\left[\hat{\mu}_{R^{2}}\right]^{2}}+O\left(\frac{1}{N^{2}}\right)\\
+ &  &  & =\frac{1}{4N}\left(p^{(0)}\right)^{2}\frac{\sigma_{R^{2}}^{2}}{\mu_{R^{2}}^{2}}+O\left(\frac{1}{N^{2}}\right)
 \end{align*}
 
 \end_inset
@@ -947,7 +948,7 @@ Once each cell has been tuned to near its optimal prime, the total efficiency
  choices.
  To model this, consider each prime to be an independent random variable
  
-\begin_inset Formula $P_{k}$
+\begin_inset Formula $\hat{p}_{k}$
 \end_inset
 
  centered on the optimal prime value 
@@ -955,7 +956,7 @@ Once each cell has been tuned to near its optimal prime, the total efficiency
 \end_inset
 
  with some small variation 
-\begin_inset Formula $\delta P_{k}$
+\begin_inset Formula $\delta\hat{p}_{k}$
 \end_inset
 
 .
@@ -988,9 +989,9 @@ noprefix "false"
 
 \begin_inset Formula 
 \begin{align*}
-\varepsilon & =\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\left[\left(p^{(0)}+\delta P\right)\sum_{k=1}^{K}\left(\frac{p_{k}^{(0)}}{p_{k}^{(0)}+\delta P_{k}}\right)p_{k}^{(0)}\right]^{\frac{1}{2}}}\\
- & =\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\left[p^{(0)}\left(1+\frac{\delta P}{p^{(0)}}\right)\sum_{k=1}^{K}p_{k}^{(0)}\left(1-\frac{\delta P_{k}}{p_{k}^{(0)}}+\left(\frac{\delta P_{k}}{p_{k}^{(0)}}\right)^{2}+O\left(\left(\delta P\right)^{3}\right)\right)\right]^{\frac{1}{2}}}\\
- & =\varepsilon^{(0)}\left[1+\frac{1}{2}\left(\frac{\delta P}{p^{(0)}}\right)^{2}-\frac{1}{2}\sum_{k=1}^{K}\frac{\left(\delta P_{k}\right)^{2}}{p^{(0)}p_{k}^{(0)}}+O\left(\left(\delta P\right)^{3}\right)\right]
+\varepsilon & =\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\left[\left(p^{(0)}+\delta\hat{p}\right)\sum_{k=1}^{K}\left(\frac{p_{k}^{(0)}}{p_{k}^{(0)}+\delta P_{k}}\right)p_{k}^{(0)}\right]^{\frac{1}{2}}}\\
+ & =\frac{\int_{\Omega}\mathrm{d}x\:\rho\left(x\right)}{\left[p^{(0)}\left(1+\frac{\delta\hat{p}}{p^{(0)}}\right)\sum_{k=1}^{K}p_{k}^{(0)}\left(1-\frac{\delta\hat{p}_{k}}{p_{k}^{(0)}}+\left(\frac{\delta\hat{p}_{k}}{p_{k}^{(0)}}\right)^{2}+O\left(\left(\delta\hat{p}\right)^{3}\right)\right)\right]^{\frac{1}{2}}}\\
+ & =\varepsilon^{(0)}\left[1+\frac{1}{2}\left(\frac{\delta\hat{p}}{p^{(0)}}\right)^{2}-\frac{1}{2}\sum_{k=1}^{K}\frac{\left(\delta\hat{p}_{k}\right)^{2}}{p^{(0)}p_{k}^{(0)}}+O\left(\left(\delta\hat{p}\right)^{3}\right)\right]
 \end{align*}
 
 \end_inset
@@ -1010,7 +1011,7 @@ There are only second order contributions because the expansion was around
 
 \begin_inset Formula 
 \begin{equation}
-\mathrm{E}\left[\varepsilon\right]=\varepsilon^{(0)}\left[1-\frac{1}{2}\sum_{k=1}^{K}\frac{p^{(0)}-p_{k}^{(0)}}{p_{k}^{(0)}}\frac{\mathrm{E}\left[\left(\delta P_{k}\right)^{2}\right]}{\left(p^{(0)}\right)^{2}}+O\left(\left(\delta P\right)^{3}\right)\right]\label{eq:efficiency-tune-expectation-def}
+\mathrm{E}\left[\varepsilon\right]=\varepsilon^{(0)}\left[1-\frac{1}{2}\sum_{k=1}^{K}\frac{p^{(0)}-p_{k}^{(0)}}{p_{k}^{(0)}}\frac{\mathrm{E}\left[\left(\delta\hat{p}_{k}\right)^{2}\right]}{\left(p^{(0)}\right)^{2}}+O\left(\left(\delta\hat{p}\right)^{3}\right)\right]\label{eq:efficiency-tune-expectation-def}
 \end{equation}
 
 \end_inset
@@ -1024,7 +1025,7 @@ Assuming the
 \end_inset
 
  form for the errors 
-\begin_inset Formula $\delta P_{k}$
+\begin_inset Formula $\delta\hat{p}_{k}$
 \end_inset
 
  as supported by equation 
@@ -1149,14 +1150,22 @@ noprefix "false"
 
 \end_inset
 
-.
+, with an explicit subscript 
+\begin_inset Formula $k$
+\end_inset
+
+ added to the variable 
+\begin_inset Formula $R$
+\end_inset
+
+ to account for multiple cells.
 \begin_inset Newline newline
 \end_inset
 
 
 \begin_inset Formula 
 \begin{equation}
-A_{k}=\frac{1}{4}\left(\frac{p_{k}^{(0)}}{p^{(0)}}\right)\left(\frac{p^{(0)}-p_{k}^{(0)}}{p^{(0)}}\right)\left(\frac{\sigma_{R^{2}}^{2}}{\mu_{R^{2}}^{2}}\right)\label{eq:number-coeff-tune-def}
+A_{k}=\frac{1}{4}\left(\frac{p_{k}^{(0)}}{p^{(0)}}\right)\left(\frac{p^{(0)}-p_{k}^{(0)}}{p^{(0)}}\right)\left(\frac{\sigma_{R_{k}^{2}}^{2}}{\mu_{R_{k}^{2}}^{2}}\right)\label{eq:number-coeff-tune-def}
 \end{equation}
 
 \end_inset
@@ -1208,10 +1217,10 @@ To create an estimator for
 
 \begin_inset Formula 
 \begin{align*}
-\left(S_{\mu}^{2}\right)^{\mathrm{naive}} & =\frac{S_{R}^{2}}{\overline{R}^{2}}\\
- & =\frac{\sigma_{R}^{2}+\delta S_{R}^{2}}{\left(\mu_{R}+\delta\overline{R}\right)^{2}}\\
- & \approx\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1+\frac{\delta S_{R}^{2}}{\sigma_{R}^{2}}\right)\left(1+\frac{\delta\overline{R}}{\mu_{R}}\right)^{-2}\\
- & \approx\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1-2\frac{\delta\overline{R}}{\mu_{R}}+3\left(\frac{\delta\overline{R}}{\mu_{R}}\right)^{2}+\frac{\delta S_{R}^{2}}{\sigma_{R}^{2}}+O\left(\frac{1}{N^{3/2}}\right)\right)
+\left(\hat{\sigma}_{\mu}^{2}\right)^{\mathrm{naive}} & \equiv\frac{\hat{\sigma}_{R}^{2}}{\hat{\mu}_{R}^{2}}\\
+ & =\frac{\sigma_{R}^{2}+\delta\hat{\sigma}_{R}^{2}}{\left(\mu_{R}+\delta\hat{\mu}_{R}\right)^{2}}\\
+ & \approx\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1+\frac{\delta\hat{\sigma}_{R}^{2}}{\sigma_{R}^{2}}\right)\left(1+\frac{\delta\hat{\mu}_{R}}{\mu_{R}}\right)^{-2}\\
+ & \approx\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1-2\frac{\delta\hat{\mu}_{R}}{\mu_{R}}+3\left(\frac{\delta\hat{\mu}_{R}}{\mu_{R}}\right)^{2}+\frac{\delta\hat{\sigma}_{R}^{2}}{\sigma_{R}^{2}}+O\left(\frac{1}{N^{3/2}}\right)\right)
 \end{align*}
 
 \end_inset
@@ -1220,15 +1229,16 @@ To create an estimator for
 \begin_inset Newline newline
 \end_inset
 
-Then taking the expectation value lets a less-biased estimator be constructed.
+Then taking the expectation value leads to the construction of a less-biased
+ estimator.
 \begin_inset Newline newline
 \end_inset
 
 
 \begin_inset Formula 
 \begin{align}
-\mathrm{E}\left[\left(S_{\mu}^{2}\right)^{\mathrm{naive}}\right] & =\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1+\frac{3S_{R}^{2}}{N\mu_{R}^{2}}+O\left(\frac{1}{N^{3/2}}\right)\right)\nonumber \\
-S_{\mu}^{2} & =\frac{S_{R}^{2}}{\overline{R}^{2}}\left(1-\frac{3S_{R}^{2}}{N\overline{R}^{2}}\right)\label{eq:relative-variance-estimator-def}
+\mathrm{E}\left[\left(\hat{\sigma}_{\mu}^{2}\right)^{\mathrm{naive}}\right] & =\frac{\sigma_{R}^{2}}{\mu_{R}^{2}}\left(1+\frac{3S_{R}^{2}}{N\mu_{R}^{2}}+O\left(\frac{1}{N^{3/2}}\right)\right)\nonumber \\
+\hat{\sigma}_{\mu}^{2} & \equiv\frac{\hat{\sigma}_{R}^{2}}{\hat{\mu}_{R}^{2}}\left(1-\frac{3\hat{\sigma}_{R}^{2}}{N\hat{\mu}_{R}^{2}}\right)\label{eq:relative-variance-estimator-def}
 \end{align}
 
 \end_inset
@@ -1328,7 +1338,7 @@ For modeling cell division, we will use cells that are
 
 \begin_inset Formula 
 \begin{align*}
-p_{\mathrm{total}}^{(0)} & =p_{A}^{(0)}+p_{B}^{(0)}\\
+p_{\mathrm{total}}^{(0)} & \equiv p_{A}^{(0)}+p_{B}^{(0)}\\
  & =\sqrt{V_{A}\int_{x_{1}=0}^{\lambda_{A}L_{1}}\mathrm{d}x\:\rho\left(x\right)^{2}}+\sqrt{V_{B}\int_{x_{1}=\lambda_{A}L_{1}}^{L_{1}}\mathrm{d}x\:\rho\left(x\right)^{2}}
 \end{align*}
 
@@ -1363,8 +1373,8 @@ Define the split variables
 
 \begin_inset Formula 
 \begin{align*}
-R_{A} & =\rho\left(X_{A}\right)\\
-R_{B} & =\rho\left(X_{B}\right)
+R_{A} & \equiv\rho\left(X_{A}\right)\\
+R_{B} & \equiv\rho\left(X_{B}\right)
 \end{align*}
 
 \end_inset
@@ -1424,9 +1434,9 @@ This allows a simple estimator for the change in the prime before/after
 
 \begin_inset Formula 
 \begin{align*}
-P_{A} & =V\lambda_{A}\sqrt{\overline{R_{A}^{2}}}\left(1+\frac{1}{8N_{A}}\frac{S_{R_{A}^{2}}^{2}}{\overline{R_{A}^{2}}}\right)\\
-P_{B} & =V\lambda_{B}\sqrt{\overline{R_{B}^{2}}}\left(1+\frac{1}{8N_{B}}\frac{S_{R_{B}^{2}}^{2}}{\overline{R_{B}^{2}}}\right)\\
-\Delta P & =P_{A}+P_{B}-P
+\hat{p}_{A} & =V\lambda_{A}\sqrt{\hat{\mu}_{R_{A}^{2}}}\left(1+\frac{1}{8N_{A}}\frac{\hat{\sigma}_{R_{A}^{2}}^{2}}{\hat{\mu}_{R_{A}^{2}}}\right)\\
+\hat{p}_{B} & =V\lambda_{B}\sqrt{\hat{\mu}_{R_{B}^{2}}}\left(1+\frac{1}{8N_{B}}\frac{\hat{\sigma}_{R_{B}^{2}}^{2}}{\hat{\mu}_{R_{B}^{2}}}\right)\\
+\Delta\hat{p} & \equiv\hat{p}_{A}+\hat{p}_{B}-\hat{p}
 \end{align*}
 
 \end_inset
@@ -1445,7 +1455,7 @@ where
 
 .
  It is also useful to have the variance of the estimator 
-\begin_inset Formula $\Delta P$
+\begin_inset Formula $\Delta\hat{p}$
 \end_inset
 
 , assuming that the 
@@ -1484,7 +1494,7 @@ where
 
 \begin_inset Formula 
 \[
-\mathrm{Var}\left[\Delta P\right]=\mathrm{Var}\left[P\right]+\mathrm{Var}\left[P_{A}\right]+\mathrm{Var}\left[P_{B}\right]-2\mathrm{Cov}\left[P,P_{A}\right]-2\mathrm{Cov}\left[P,P_{B}\right]
+\mathrm{Var}\left[\Delta\hat{p}\right]=\mathrm{Var}\left[\hat{p}\right]+\mathrm{Var}\left[\hat{p}_{A}\right]+\mathrm{Var}\left[\hat{p}_{B}\right]-2\mathrm{Cov}\left[\hat{p},\hat{p}_{A}\right]-2\mathrm{Cov}\left[\hat{p},\hat{p}_{B}\right]
 \]
 
 \end_inset
@@ -1496,9 +1506,9 @@ where
 
 \begin_inset Formula 
 \begin{align*}
-\mathrm{Var}\left[P\right] & =\frac{\mathrm{Var}\left[R\right]}{4N\mathrm{E}\left[R\right]}+\frac{\mathrm{Var}\left[R\right]^{2}}{32N^{2}\mathrm{E}\left[R\right]^{3}}+O\left(\frac{1}{N^{3}}\right)\\
-\mathrm{Var}\left[P_{A}\right] & =\left(\lambda_{A}+\frac{\lambda_{B}}{N}\right)\frac{\mathrm{Var}\left[R_{A}\right]}{4N\mathrm{E}\left[R_{A}\right]}+\frac{\mathrm{Var}\left[R_{A}\right]^{2}}{32N^{2}\mathrm{E}\left[R_{A}\right]^{3}}+O\left(\frac{1}{N^{3}}\right)\\
-\mathrm{Cov}\left[P,P_{A}\right] & =\frac{\lambda_{A}\mathrm{Var}\left[R_{A}\right]}{4N\sqrt{\mathrm{E}\left[R_{A}\right]\mathrm{E}\left[R\right]}}+\frac{\lambda_{A}}{32N^{2}\sqrt{\mathrm{E}\left[R_{A}\right]^{3}\mathrm{E}\left[R\right]^{5}}}\biggl\{\mathrm{Var}\left[R_{A}\right]^{2}\mathrm{E}\left[R\right]\\
+\mathrm{Var}\left[\hat{p}\right] & =\frac{\mathrm{Var}\left[R\right]}{4N\mathrm{E}\left[R\right]}+\frac{\mathrm{Var}\left[R\right]^{2}}{32N^{2}\mathrm{E}\left[R\right]^{3}}+O\left(\frac{1}{N^{3}}\right)\\
+\mathrm{Var}\left[\hat{p}_{A}\right] & =\left(\lambda_{A}+\frac{\lambda_{B}}{N}\right)\frac{\mathrm{Var}\left[R_{A}\right]}{4N\mathrm{E}\left[R_{A}\right]}+\frac{\mathrm{Var}\left[R_{A}\right]^{2}}{32N^{2}\mathrm{E}\left[R_{A}\right]^{3}}+O\left(\frac{1}{N^{3}}\right)\\
+\mathrm{Cov}\left[\hat{p},\hat{p}_{A}\right] & =\frac{\lambda_{A}\mathrm{Var}\left[R_{A}\right]}{4N\sqrt{\mathrm{E}\left[R_{A}\right]\mathrm{E}\left[R\right]}}+\frac{\lambda_{A}}{32N^{2}\sqrt{\mathrm{E}\left[R_{A}\right]^{3}\mathrm{E}\left[R\right]^{5}}}\biggl\{\mathrm{Var}\left[R_{A}\right]^{2}\mathrm{E}\left[R\right]\\
  & \qquad\qquad+4\lambda_{B}\mathrm{Var}\left[R_{A}\right]\mathrm{E}\left[R\right]\mathrm{E}\left[R_{A}\right]\mathrm{E}\left[R_{A}-R_{B}\right]\\
  & \qquad\qquad-2\lambda_{A}\lambda_{B}\left(\lambda_{A}-\lambda_{B}\right)\mathrm{E}\left[R_{A}\right]^{2}\mathrm{E}\left[R_{A}-R_{B}\right]^{3}\biggr\}+O\left(\frac{1}{N^{3}}\right)
 \end{align*}
@@ -1510,7 +1520,7 @@ where
 \end_inset
 
 There are similar expressions involving 
-\begin_inset Formula $P_{B}$
+\begin_inset Formula $\hat{p}_{B}$
 \end_inset
 
  after swapping 
@@ -1522,7 +1532,7 @@ There are similar expressions involving
 
 \begin_layout Standard
 Then, the goal of cell division is simply to find the minimum value of 
-\begin_inset Formula $P_{\mathrm{total}}$
+\begin_inset Formula $\Delta\hat{p}$
 \end_inset
 
  as a function of 
@@ -1533,26 +1543,26 @@ Then, the goal of cell division is simply to find the minimum value of
  If the minimum cannot be determined due to large error, then more samples
  need to be taken until the error is small enough.
  The shape of 
-\begin_inset Formula $P_{\mathrm{total}}$
+\begin_inset Formula $\Delta\hat{p}$
 \end_inset
 
  as a function of 
 \begin_inset Formula $\lambda$
 \end_inset
 
- might be quite complicated, with multiple minima and maxima, but in general
- it is strictly bounded by total of the parent cell.
+ might be quite complicated, with multiple minima and maxima, but it is
+ strictly bounded by total of the parent cell.
  It is impossible for the optimal efficiency to get worse through cell division.
 \end_layout
 
 \begin_layout Standard
 One simple algorithm that can be used for finding the minimum is to use
  a histogram of 
-\begin_inset Formula $P_{\mathrm{total}}$
+\begin_inset Formula $\Delta\hat{p}$
 \end_inset
 
- in bins of width 
-\begin_inset Formula $\Delta\lambda$
+ in bins 
+\begin_inset Formula $\lambda$
 \end_inset
 
 .
@@ -1567,7 +1577,7 @@ One simple algorithm that can be used for finding the minimum is to use
 \end_inset
 
  test has been suitably violated, the bin with the smallest 
-\begin_inset Formula $P_{\mathrm{total}}$
+\begin_inset Formula $\Delta\hat{p}$
 \end_inset
 
  is selected.

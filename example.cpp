@@ -89,7 +89,8 @@ void build_bubble(int func_index, char const* file_name) {
 		<< " ± " << rel_var_err / rel_var * 100. << "%" << std::endl;
 	std::cout << "Writing to file: " << file_name << std::endl;
 	std::ofstream file(file_name, std::ios::binary);
-	builder.write(file);
+	auto generator = bubble::make_generator<DIM, Real>(builder);
+	generator.write(file);
 }
 
 template<typename T>
@@ -113,16 +114,17 @@ void analyze_weights(Real prime, std::vector<T> const& weights) {
 }
 
 void generate_bubble(int func_index, char const* file_name, std::size_t samples) {
-	auto generator = bubble::make_generator<DIM, Real>(funcs[func_index]);
+	auto generator = bubble::make_generator<DIM, Real>();
 	std::cout << "Reading from file: " << file_name << std::endl;
 	std::ifstream file(file_name, std::ios::binary);
 	generator.read(file);
 	std::vector<Real> weights;
+	std::mt19937_64 rnd{std::random_device()()};
 	std::cout << "Generating." << std::endl;
 	for (std::size_t sample = 0; sample < samples; ++sample) {
 		Real weight;
 		bubble::Point<DIM, Real> point;
-		generator.generate(&weight, &point);
+		generator.generate(rnd, funcs[func_index], &weight, &point);
 		if (sample < 10) {
 			std::cout
 				<< "\tw: " << weight << ", x: ("
@@ -185,8 +187,8 @@ void generate_foam(int func_index, char const* file_name, std::size_t samples) {
 int main(int argc, char** argv) {
 	if (argc != 5) {
 		std::cout << "Usage:" << std::endl
-			<< "\ttest (bubble,foam) build <file-name> <func-index>" << std::endl
-			<< "\ttest (bubble,foam) generate <file-name> <func-index>" << std::endl;
+			<< "\texample (bubble,foam) build <file-name> <func-index>" << std::endl
+			<< "\texample (bubble,foam) generate <file-name> <func-index>" << std::endl;
 		return 0;
 	}
 	std::string type = argv[1];

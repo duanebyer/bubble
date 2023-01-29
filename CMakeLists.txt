@@ -5,7 +5,7 @@ endif()
 
 project(
 	Bubble
-	VERSION 0.1
+	VERSION 0.2
 	DESCRIPTION "Library for random sampling from arbitrary distributions."
 	LANGUAGES CXX)
 
