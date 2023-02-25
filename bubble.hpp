@@ -141,6 +141,16 @@ class Tree final {
 	template<typename B1, typename DB1, typename DL1>
 	friend class Tree;
 
+	static_assert(
+		std::is_trivially_copyable<B>::value,
+		"Branch node type must be trivially copyable.");
+	static_assert(
+		std::is_trivially_copyable<DB>::value,
+		"Branch data type must be trivially copyable.");
+	static_assert(
+		std::is_trivially_copyable<DL>::value,
+		"Leaf data type must be trivially copyable.");
+
 	// Represents a cell in a tree with branch type `B`, storing data of type
 	// `DB` each branch node, and data of type `DL` on each leaf node.
 	struct Cell final {
@@ -173,56 +183,11 @@ class Tree final {
 		Cell(DL const& data) :
 			_type(CellType::LEAF),
 			leaf_data(data) { }
-		// Copy constructor.
-		Cell(Cell const& other) : _type(other._type) {
-			if (_type == CellType::BRANCH) {
-				new(&branch) B(other.branch);
-				new(&branch_data) DB(other.branch_data);
-			} else {
-				new(&leaf_data) DL(other.leaf_data);
-			}
-		}
-		// Destructor.
-		~Cell() {
-			if (_type == CellType::BRANCH) {
-				branch.~B();
-				branch_data.~DB();
-			} else {
-				leaf_data.~DL();
-			}
-		}
-		// Assignment.
-		Cell& operator=(Cell const& other) {
-			if (_type == other._type) {
-				if (_type == CellType::BRANCH) {
-					branch = other.branch;
-					branch_data = other.branch_data;
-				} else {
-					leaf_data = other.leaf_data;
-				}
-			} else {
-				if (_type == CellType::BRANCH) {
-					branch.~B();
-					branch_data.~DB();
-				} else {
-					leaf_data.~DL();
-				}
-				if (other._type == CellType::BRANCH) {
-					_type = CellType::BRANCH;
-					new(&branch) B(other.branch);
-					new(&branch_data) DB(other.branch_data);
-				} else {
-					_type = CellType::LEAF;
-					new(&leaf_data) DL(other.leaf_data);
-				}
-			}
-			return *this;
-		}
 	};
 
 	std::vector<Cell> _cells;
 
-	Tree(std::vector<Cell>&& cells) : _cells(cells) { }
+	Tree(std::vector<Cell>&& cells) : _cells(std::move(cells)) { }
 
 public:
 	using Branch = B;
